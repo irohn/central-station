@@ -3,7 +3,7 @@ export type Role = "listener" | "collaborator" | "manager" | "admin";
 export type Permission =
   | "queue:read" | "history:read" | "track:resolve"
   | "queue:add" | "queue:remove_own" | "playlist:write" | "volume:control"
-  | "queue:remove_any" | "queue:reorder" | "playback:control" | "fallback:manage"
+  | "queue:remove_any" | "queue:reorder" | "playback:control" | "fallback:manage" | "playlist:remove_any"
   | "settings:manage" | "users:manage" | "integrations:manage";
 
 export interface User {
@@ -34,8 +34,27 @@ export interface QueueItem {
   /** For fallback items this is the playlist title. */
   addedByName: string;
   addedAt: string;
-  /** "fallback" when the default playlist supplied the track. */
-  source?: "fallback";
+  /** "playlist" for a user-queued playlist, "fallback" for the default playlist. */
+  source?: "fallback" | "playlist";
+  playlistId?: string;
+  playlistTitle?: string;
+}
+
+/** A user-queued playlist (plays after the song queue, before the default). */
+export interface QueuedPlaylist {
+  id: string;
+  provider: string;
+  url: string;
+  title: string;
+  thumbnailUrl?: string;
+  trackCount: number;
+  played: number;
+  shuffle: boolean;
+  addedById: string;
+  addedByName: string;
+  addedAt: string;
+  next?: Track;
+  playing: boolean;
 }
 
 /** Default-playlist summary embedded in every queue snapshot. */
@@ -76,6 +95,7 @@ export interface QueueState {
   startedAt?: string;
   items: QueueItem[];
   updatedAt: string;
+  playlists: QueuedPlaylist[];
   fallback?: FallbackState;
 }
 

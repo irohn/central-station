@@ -32,6 +32,9 @@ func (fakeProvider) ResolveURL(_ context.Context, u *url.URL) (*provider.Track, 
 	if id == "" {
 		return nil, fmt.Errorf("%w: not a video", provider.ErrInvalidURL)
 	}
+	if id == "boom" {
+		return nil, fmt.Errorf("%w: exploded", provider.ErrUnavailable)
+	}
 	if id == "missing" {
 		return nil, fmt.Errorf("%w: gone", provider.ErrNotFound)
 	}

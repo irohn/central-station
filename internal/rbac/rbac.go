@@ -34,14 +34,15 @@ const (
 	// Collaborator.
 	QueueAdd       Permission = "queue:add"
 	QueueRemoveOwn Permission = "queue:remove_own"
-	PlaylistWrite  Permission = "playlist:write" // collaborative office playlists
+	PlaylistWrite  Permission = "playlist:write" // queue whole playlists; manage your own
 	VolumeControl  Permission = "volume:control" // set the output level
 
 	// Manager.
-	QueueRemoveAny  Permission = "queue:remove_any"
-	QueueReorder    Permission = "queue:reorder"
-	PlaybackControl Permission = "playback:control" // skip, pause, resume, override
-	FallbackManage  Permission = "fallback:manage"  // configure the default playlist
+	QueueRemoveAny    Permission = "queue:remove_any"
+	PlaylistRemoveAny Permission = "playlist:remove_any" // skip or reshuffle anyone's queued playlist
+	QueueReorder      Permission = "queue:reorder"
+	PlaybackControl   Permission = "playback:control" // skip, pause, resume, override
+	FallbackManage    Permission = "fallback:manage"  // configure the default playlist
 
 	// Admin.
 	SettingsManage     Permission = "settings:manage"
@@ -61,7 +62,7 @@ var roleLevel = map[Role]int{
 var AllPermissions = []Permission{
 	QueueRead, HistoryRead, TrackResolve,
 	QueueAdd, QueueRemoveOwn, PlaylistWrite, VolumeControl,
-	QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage,
+	QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage, PlaylistRemoveAny,
 	SettingsManage, UsersManage, IntegrationsManage,
 }
 
@@ -69,7 +70,7 @@ var AllPermissions = []Permission{
 var DefaultGrants = map[Role][]Permission{
 	RoleListener:     {QueueRead, HistoryRead, TrackResolve},
 	RoleCollaborator: {QueueAdd, QueueRemoveOwn, PlaylistWrite, VolumeControl},
-	RoleManager:      {QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage},
+	RoleManager:      {QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage, PlaylistRemoveAny},
 	RoleAdmin:        {SettingsManage, UsersManage, IntegrationsManage},
 }
 

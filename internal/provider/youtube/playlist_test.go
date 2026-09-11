@@ -18,6 +18,8 @@ func TestPlaylistIDFromURL(t *testing.T) {
 		"https://www.youtube.com/playlist?list=PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI": "PLFgquLnL59alCl_2TQvOiD5Vgm1hCaGSI",
 		"https://www.youtube.com/watch?v=6TWJaFD6R2s&list=PL123abc":                "PL123abc",
 		"https://music.youtube.com/playlist?list=OLAK5uy_abc":                      "OLAK5uy_abc",
+		"https://music.youtube.com/browse/VLPL1FA6BD1610817B72":                    "PL1FA6BD1610817B72",
+		"https://music.youtube.com/browse/UC_channel":                              "",
 		"https://www.youtube.com/watch?v=6TWJaFD6R2s&list=RDabc":                   "", // auto mix
 		"https://www.youtube.com/watch?v=6TWJaFD6R2s":                              "",
 		"https://www.youtube.com/playlist?list=":                                   "",

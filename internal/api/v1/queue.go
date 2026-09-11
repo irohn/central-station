@@ -59,22 +59,121 @@ func (a *api) getQueue(w http.ResponseWriter, _ *http.Request) error {
 }
 
 // POST /queue
+//
+// A playlist URL (youtube.com/playlist?list=..., music.youtube.com/...)
+// queues the whole playlist (permission playlist:write) and answers with
+// "kind":"playlist"; anything else queues a single track ("kind":"track").
+// Optional "shuffle" (default true) applies to playlists.
 func (a *api) addToQueue(w http.ResponseWriter, r *http.Request) error {
 	u := auth.MustUser(r)
-	res, err := a.resolve(r)
-	if err != nil {
+	var body struct {
+		resolveRequest
+		Shuffle *bool `json:"shuffle,omitempty"`
+	}
+	if err := httpx.Decode(r, &body, false); err != nil {
 		return err
+	}
+	res, err := a.Providers.Resolve(r.Context(), body.Input, body.Provider)
+	if errors.Is(err, provider.ErrInvalidURL) {
+		// Not a playable video URL: maybe a playlist.
+		pl, perr := a.Providers.ResolvePlaylist(r.Context(), body.Input)
+		if perr == nil {
+			if !u.Role.Has(rbac.PlaylistWrite) {
+				return httpx.Forbidden("role %q lacks permission %q", u.Role, rbac.PlaylistWrite)
+			}
+			shuffle := body.Shuffle == nil || *body.Shuffle
+			qp, err := a.Queue.AddPlaylist(r.Context(), pl, u.ID, u.Name, shuffle)
+			if err != nil {
+				return providerError(err)
+			}
+			httpx.JSON(w, http.StatusCreated, map[string]any{
+				"kind":     "playlist",
+				"playlist": playlistSummary(a.Queue.Snapshot(), qp.ID),
+				"query":    pl.URL,
+				"queue":    a.Queue.Snapshot(),
+			})
+			return nil
+		}
+		if !errors.Is(perr, provider.ErrNotPlaylist) {
+			err = perr
+		}
+	}
+	if err != nil {
+		return providerError(err)
 	}
 	item, err := a.Queue.Add(r.Context(), res.Track, u.ID, u.Name)
 	if err != nil {
 		return err
 	}
 	httpx.JSON(w, http.StatusCreated, map[string]any{
+		"kind":      "track",
 		"item":      item,
 		"inputKind": res.Kind,
 		"query":     res.Query,
 		"queue":     a.Queue.Snapshot(),
 	})
+	return nil
+}
+
+func playlistSummary(s queue.State, id string) *queue.PlaylistSummary {
+	for i := range s.Playlists {
+		if s.Playlists[i].ID == id {
+			return &s.Playlists[i]
+		}
+	}
+	return nil
+}
+
+// playlistAccess allows owners (playlist:write) and managers (playlist:remove_any).
+func (a *api) playlistAccess(r *http.Request, id string) (*queue.QueuedPlaylist, error) {
+	u := auth.MustUser(r)
+	pl, err := a.Queue.GetPlaylist(id)
+	if err != nil {
+		return nil, queueError(err)
+	}
+	switch {
+	case u.Role.Has(rbac.PlaylistRemoveAny):
+	case u.Role.Has(rbac.PlaylistWrite) && pl.AddedByID == u.ID:
+	case u.Role.Has(rbac.PlaylistWrite):
+		return nil, httpx.Forbidden("you can only change playlists you added")
+	default:
+		return nil, httpx.Forbidden("role %q lacks permission %q", u.Role, rbac.PlaylistWrite)
+	}
+	return pl, nil
+}
+
+// DELETE /queue/playlists/{id}  (skip the whole playlist; owners or managers)
+func (a *api) removePlaylist(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+	if _, err := a.playlistAccess(r, id); err != nil {
+		return err
+	}
+	if _, err := a.Queue.RemovePlaylist(r.Context(), id, auth.MustUser(r).ID); err != nil {
+		return queueError(err)
+	}
+	httpx.JSON(w, http.StatusOK, a.Queue.Snapshot())
+	return nil
+}
+
+// PATCH /queue/playlists/{id}  {"shuffle": false}  (owners or managers)
+func (a *api) updatePlaylist(w http.ResponseWriter, r *http.Request) error {
+	id := r.PathValue("id")
+	var body struct {
+		Shuffle *bool `json:"shuffle"`
+	}
+	if err := httpx.Decode(r, &body, false); err != nil {
+		return err
+	}
+	if body.Shuffle == nil {
+		return httpx.BadRequest("invalid_input", "shuffle is required")
+	}
+	if _, err := a.playlistAccess(r, id); err != nil {
+		return err
+	}
+	if _, err := a.Queue.SetPlaylistShuffle(r.Context(), id, *body.Shuffle); err != nil {
+		return queueError(err)
+	}
+	httpx.JSON(w, http.StatusOK, a.Queue.Snapshot())
 	return nil
 }
 
@@ -194,6 +293,8 @@ func queueError(err error) error {
 	switch {
 	case errors.Is(err, queue.ErrItemNotFound):
 		return httpx.NotFound("item_not_found", "%s", err.Error())
+	case errors.Is(err, queue.ErrPlaylistNotFound):
+		return httpx.NotFound("playlist_not_found", "%s", err.Error())
 	case errors.Is(err, queue.ErrNotPlaying):
 		return httpx.Conflict("not_playing", "%s", err.Error())
 	case errors.Is(err, queue.ErrBadPosition):

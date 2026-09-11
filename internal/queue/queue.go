@@ -10,6 +10,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"sync"
 	"time"
 
@@ -34,9 +35,12 @@ type Item struct {
 	AddedByID   string          `json:"addedById"`
 	AddedByName string          `json:"addedByName"`
 	AddedAt     time.Time       `json:"addedAt"`
-	// Source is empty for user-queued items and SourceFallback for tracks the
-	// default playlist supplied because the queue was empty.
+	// Source is empty for user-queued songs, SourcePlaylist for tracks from a
+	// user-queued playlist and SourceFallback for the default playlist.
 	Source string `json:"source,omitempty"`
+	// PlaylistID/PlaylistTitle identify the queued playlist for SourcePlaylist items.
+	PlaylistID    string `json:"playlistId,omitempty"`
+	PlaylistTitle string `json:"playlistTitle,omitempty"`
 }
 
 // SourceFallback marks items that came from the default playlist.
@@ -93,6 +97,8 @@ type State struct {
 	StartedAt time.Time `json:"startedAt,omitzero"`
 	Items     []*Item   `json:"items"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// Playlists are the user-queued playlists, in play order.
+	Playlists []PlaylistSummary `json:"playlists"`
 	// Fallback is nil when no default-playlist source is configured.
 	Fallback *FallbackState `json:"fallback,omitempty"`
 }
@@ -109,11 +115,13 @@ type Service struct {
 
 	mu        sync.RWMutex
 	items     []*Item
+	playlists []*QueuedPlaylist
 	current   *Item
 	startedAt time.Time
 	status    Status
 	updatedAt time.Time
 	now       func() time.Time
+	rng       *rand.Rand
 	fallback  FallbackSource
 
 	// OnChange, when set, is called (without the lock held) after every mutation.
@@ -144,14 +152,18 @@ func (s *Service) Nudge(ctx context.Context) error {
 	return s.transitionLocked(ctx, nil)
 }
 
+// SetRandom replaces the random source (tests).
+func (s *Service) SetRandom(r *rand.Rand) { s.rng = r }
+
 // New creates a queue backed by store and loads the persisted state.
 func New(ctx context.Context, store Store) (*Service, error) {
-	s := &Service{store: store, status: StatusIdle, now: time.Now, updatedAt: time.Now()}
+	s := &Service{store: store, status: StatusIdle, now: time.Now, updatedAt: time.Now(), rng: newRNG()}
 	p, err := store.Load(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("load queue: %w", err)
 	}
 	s.items = p.Items
+	s.playlists = p.Playlists
 	s.current = p.Current
 	s.startedAt = p.StartedAt
 	s.status = p.Status
@@ -173,7 +185,7 @@ func (s *Service) Snapshot() State {
 	defer s.mu.RUnlock()
 	items := make([]*Item, len(s.items))
 	copy(items, s.items)
-	st := State{Status: s.status, Current: s.current, StartedAt: s.startedAt, Items: items, UpdatedAt: s.updatedAt}
+	st := State{Status: s.status, Current: s.current, StartedAt: s.startedAt, Items: items, UpdatedAt: s.updatedAt, Playlists: s.playlistSummariesLocked()}
 	if s.fallback != nil {
 		st.Fallback = s.fallback.Peek()
 	}
@@ -345,31 +357,73 @@ func (s *Service) History(ctx context.Context, limit int) ([]*HistoryEntry, erro
 	return s.store.History(ctx, limit)
 }
 
-// transitionLocked records ended (if any) and promotes the head of the queue
-// into the current slot, persisting both atomically. When the queue is empty
-// the fallback source (default playlist) is consulted instead.
+// transitionLocked records ended (if any) and fills the current slot from the
+// song queue, then the queued playlists, then the fallback source.
 func (s *Service) transitionLocked(ctx context.Context, ended *HistoryEntry) error {
+	return s.advanceLocked(ctx, ended, "")
+}
+
+// advanceLocked is transitionLocked plus the removal of playlist skipPlaylist
+// (if non-empty), all persisted in one store transaction.
+func (s *Service) advanceLocked(ctx context.Context, ended *HistoryEntry, skipPlaylist string) error {
 	var next, current *Item
 	status := StatusIdle
 	var startedAt time.Time
+	change := &PlaylistChange{}
+
+	// Playlists that survive this transition, in order.
+	remaining := make([]*QueuedPlaylist, 0, len(s.playlists))
+	for _, p := range s.playlists {
+		if p.ID == skipPlaylist {
+			change.Removes = append(change.Removes, p.ID)
+			continue
+		}
+		remaining = append(remaining, p)
+	}
+
 	switch {
 	case len(s.items) > 0:
 		next = s.items[0]
 		current = next
-	case s.fallback != nil:
-		if t, origin := s.fallback.Next(ctx); t != nil {
-			current = &Item{ID: uuid.NewString(), Track: t, AddedByID: SourceFallback, AddedByName: origin, AddedAt: s.now(), Source: SourceFallback}
+	default:
+		// Drop played-through playlists, then take the head of the next one.
+		for len(remaining) > 0 && remaining[0].exhausted() {
+			change.Removes = append(change.Removes, remaining[0].ID)
+			remaining = remaining[1:]
+		}
+		if len(remaining) > 0 {
+			cp := *remaining[0]
+			t := cp.next()
+			cp.Cursor++
+			change.Updates = append(change.Updates, &cp)
+			current = &Item{ID: uuid.NewString(), Track: t, AddedByID: cp.AddedByID, AddedByName: cp.AddedByName, AddedAt: s.now(),
+				Source: SourcePlaylist, PlaylistID: cp.ID, PlaylistTitle: cp.Title}
+		} else if s.fallback != nil {
+			if t, origin := s.fallback.Next(ctx); t != nil {
+				current = &Item{ID: uuid.NewString(), Track: t, AddedByID: SourceFallback, AddedByName: origin, AddedAt: s.now(), Source: SourceFallback}
+			}
 		}
 	}
 	if current != nil {
 		status = StatusPlaying
 		startedAt = s.now()
 	}
-	if err := s.store.Transition(ctx, ended, next, status, current, startedAt); err != nil {
+	if change.empty() {
+		change = nil
+	}
+	if err := s.store.Transition(ctx, ended, next, status, current, startedAt, change); err != nil {
 		return err
 	}
 	if next != nil {
 		s.items = s.items[1:]
+	}
+	if change != nil {
+		for _, u := range change.Updates {
+			if p := s.findPlaylistLocked(u.ID); p != nil {
+				*p = *u
+			}
+		}
+		s.playlists = remaining
 	}
 	s.current = current
 	s.startedAt = startedAt

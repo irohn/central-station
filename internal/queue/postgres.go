@@ -41,6 +41,26 @@ func (p *PostgresStore) Load(ctx context.Context) (*Persisted, error) {
 		return nil, err
 	}
 
+	prows, err := p.pool.Query(ctx, `SELECT data FROM queue_playlists ORDER BY position`)
+	if err != nil {
+		return nil, err
+	}
+	defer prows.Close()
+	for prows.Next() {
+		var data []byte
+		if err := prows.Scan(&data); err != nil {
+			return nil, err
+		}
+		pl := &QueuedPlaylist{}
+		if err := json.Unmarshal(data, pl); err != nil {
+			return nil, fmt.Errorf("decode queued playlist: %w", err)
+		}
+		out.Playlists = append(out.Playlists, pl)
+	}
+	if err := prows.Err(); err != nil {
+		return nil, err
+	}
+
 	var status string
 	var current []byte
 	var startedAt *time.Time
@@ -80,6 +100,40 @@ func (p *PostgresStore) Insert(ctx context.Context, it *Item) error {
 
 func (p *PostgresStore) Delete(ctx context.Context, id string) error {
 	_, err := p.pool.Exec(ctx, `DELETE FROM queue_items WHERE id = $1`, id)
+	return err
+}
+
+func (p *PostgresStore) InsertPlaylist(ctx context.Context, pl *QueuedPlaylist) error {
+	data, err := json.Marshal(pl)
+	if err != nil {
+		return err
+	}
+	_, err = p.pool.Exec(ctx, `INSERT INTO queue_playlists (id, position, data)
+		VALUES ($1, (SELECT COALESCE(MAX(position), 0) + 1 FROM queue_playlists), $2)`, pl.ID, data)
+	return err
+}
+
+func (p *PostgresStore) UpdatePlaylist(ctx context.Context, pl *QueuedPlaylist) error {
+	return updatePlaylist(ctx, p.pool, pl)
+}
+
+func updatePlaylist(ctx context.Context, db execer, pl *QueuedPlaylist) error {
+	data, err := json.Marshal(pl)
+	if err != nil {
+		return err
+	}
+	tag, err := db.Exec(ctx, `UPDATE queue_playlists SET data = $2 WHERE id = $1`, pl.ID, data)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return ErrPlaylistNotFound
+	}
+	return nil
+}
+
+func (p *PostgresStore) DeletePlaylist(ctx context.Context, id string) error {
+	_, err := p.pool.Exec(ctx, `DELETE FROM queue_playlists WHERE id = $1`, id)
 	return err
 }
 
@@ -123,8 +177,20 @@ func setPlayback(ctx context.Context, db execer, status Status, current *Item, s
 	return err
 }
 
-func (p *PostgresStore) Transition(ctx context.Context, ended *HistoryEntry, next *Item, status Status, current *Item, startedAt time.Time) error {
+func (p *PostgresStore) Transition(ctx context.Context, ended *HistoryEntry, next *Item, status Status, current *Item, startedAt time.Time, change *PlaylistChange) error {
 	return pgx.BeginFunc(ctx, p.pool, func(tx pgx.Tx) error {
+		if change != nil {
+			for _, u := range change.Updates {
+				if err := updatePlaylist(ctx, tx, u); err != nil {
+					return err
+				}
+			}
+			for _, id := range change.Removes {
+				if _, err := tx.Exec(ctx, `DELETE FROM queue_playlists WHERE id = $1`, id); err != nil {
+					return err
+				}
+			}
+		}
 		if ended != nil {
 			item, err := json.Marshal(ended.Item)
 			if err != nil {

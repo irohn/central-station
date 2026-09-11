@@ -21,10 +21,17 @@ const MaxPlaylistTracks = 300
 
 var playlistIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{2,}$`)
 
-// PlaylistIDFromURL extracts the "list" parameter from playlist and watch URLs.
-// Auto-generated mixes (RD...) are session-specific on YouTube and rejected.
+// PlaylistIDFromURL extracts the playlist ID from playlist and watch URLs
+// (`list=`) and from YouTube Music browse pages (`/browse/VL<id>`), on any
+// YouTube host including music.youtube.com. Auto-generated mixes (RD...) are
+// session-specific on YouTube and rejected.
 func (p *Provider) PlaylistIDFromURL(u *url.URL) (string, bool) {
 	id := u.Query().Get("list")
+	if id == "" {
+		if segs := strings.Split(strings.Trim(u.Path, "/"), "/"); len(segs) == 2 && segs[0] == "browse" && strings.HasPrefix(segs[1], "VL") {
+			id = strings.TrimPrefix(segs[1], "VL")
+		}
+	}
 	if id == "" || !playlistIDRe.MatchString(id) || strings.HasPrefix(id, "RD") {
 		return "", false
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"central-station/internal/db"
+	"central-station/internal/provider"
 )
 
 // storeConformance exercises a Store the way the Service uses it.
@@ -56,7 +57,7 @@ func storeConformance(t *testing.T, st Store) {
 	}
 
 	// Promote c into the current slot (no history yet).
-	if err := st.Transition(ctx, nil, c, StatusPlaying, c, now); err != nil {
+	if err := st.Transition(ctx, nil, c, StatusPlaying, c, now, nil); err != nil {
 		t.Fatal(err)
 	}
 	p, _ = st.Load(ctx)
@@ -76,7 +77,7 @@ func storeConformance(t *testing.T, st Store) {
 
 	// c ends (skipped), a becomes current.
 	ended := &HistoryEntry{Item: c, StartedAt: now, EndedAt: now.Add(time.Minute), EndReason: EndSkipped, EndedByID: "mgr"}
-	if err := st.Transition(ctx, ended, a, StatusPlaying, a, now.Add(time.Minute)); err != nil {
+	if err := st.Transition(ctx, ended, a, StatusPlaying, a, now.Add(time.Minute), nil); err != nil {
 		t.Fatal(err)
 	}
 	p, _ = st.Load(ctx)
@@ -89,7 +90,7 @@ func storeConformance(t *testing.T, st Store) {
 	}
 	// a fails, queue empty -> idle.
 	failed := &HistoryEntry{Item: a, StartedAt: now, EndedAt: now.Add(2 * time.Minute), EndReason: EndError, EndedByID: "player", Error: "boom"}
-	if err := st.Transition(ctx, failed, nil, StatusIdle, nil, time.Time{}); err != nil {
+	if err := st.Transition(ctx, failed, nil, StatusIdle, nil, time.Time{}, nil); err != nil {
 		t.Fatal(err)
 	}
 	p, _ = st.Load(ctx)
@@ -109,6 +110,43 @@ func storeConformance(t *testing.T, st Store) {
 	}
 	if h, _ = st.History(ctx, 1); len(h) != 1 || h[0].Item.ID != a.ID {
 		t.Fatalf("history limit: %+v", h)
+	}
+
+	// Playlists: insert two, advance one inside a transition, remove the other.
+	p1 := &QueuedPlaylist{ID: "44444444-4444-4444-8444-444444444444", Provider: "youtube", SourceID: "PL1", Title: "one", Tracks: []*provider.Track{track("p1a"), track("p1b")}, Order: []int{1, 0}, Shuffle: true, AddedByID: "u1", AddedByName: "Ann", AddedAt: now}
+	p2 := &QueuedPlaylist{ID: "55555555-5555-4555-8555-555555555555", Provider: "youtube", SourceID: "PL2", Title: "two", Tracks: []*provider.Track{track("p2a")}, Order: []int{0}, AddedByID: "u2", AddedByName: "Bob", AddedAt: now}
+	for _, pl := range []*QueuedPlaylist{p1, p2} {
+		if err := st.InsertPlaylist(ctx, pl); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p, _ = st.Load(ctx)
+	if len(p.Playlists) != 2 || p.Playlists[0].ID != p1.ID || p.Playlists[0].Order[0] != 1 || !p.Playlists[0].Shuffle || p.Playlists[1].Title != "two" {
+		t.Fatalf("playlists after insert: %+v", p.Playlists)
+	}
+	adv := *p1
+	adv.Cursor = 1
+	item := &Item{ID: "66666666-6666-4666-8666-666666666666", Track: track("p1b"), Source: SourcePlaylist, PlaylistID: p1.ID, PlaylistTitle: "one", AddedByID: "u1", AddedByName: "Ann", AddedAt: now}
+	if err := st.Transition(ctx, nil, nil, StatusPlaying, item, now, &PlaylistChange{Updates: []*QueuedPlaylist{&adv}, Removes: []string{p2.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ = st.Load(ctx)
+	if len(p.Playlists) != 1 || p.Playlists[0].Cursor != 1 || p.Current == nil || p.Current.PlaylistID != p1.ID || p.Current.Source != SourcePlaylist {
+		t.Fatalf("after playlist transition: %+v current=%+v", p.Playlists, p.Current)
+	}
+	adv.Shuffle = false
+	adv.Order = []int{1, 0}
+	if err := st.UpdatePlaylist(ctx, &adv); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.UpdatePlaylist(ctx, &QueuedPlaylist{ID: "77777777-7777-4777-8777-777777777777"}); err != ErrPlaylistNotFound {
+		t.Fatalf("update unknown: %v", err)
+	}
+	if err := st.DeletePlaylist(ctx, p1.ID); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ = st.Load(ctx); len(p.Playlists) != 0 {
+		t.Fatalf("playlists after delete: %+v", p.Playlists)
 	}
 }
 
@@ -132,7 +170,7 @@ func postgresPool(t *testing.T) *pgxpool.Pool {
 	if err := db.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := pool.Exec(ctx, `TRUNCATE users, queue_items, playback, history`); err != nil {
+	if _, err := pool.Exec(ctx, `TRUNCATE users, queue_items, queue_playlists, playback, history, settings`); err != nil {
 		t.Fatal(err)
 	}
 	return pool

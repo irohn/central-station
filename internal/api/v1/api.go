@@ -65,6 +65,8 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("POST /queue", a.perm(rbac.QueueAdd, a.addToQueue))
 	mux.Handle("DELETE /queue/{id}", auth.RequireAuth(httpx.HandlerFunc(a.removeFromQueue)))
 	mux.Handle("PATCH /queue/{id}", a.perm(rbac.QueueReorder, a.moveInQueue))
+	mux.Handle("DELETE /queue/playlists/{id}", auth.RequireAuth(httpx.HandlerFunc(a.removePlaylist)))
+	mux.Handle("PATCH /queue/playlists/{id}", auth.RequireAuth(httpx.HandlerFunc(a.updatePlaylist)))
 	mux.Handle("GET /history", a.perm(rbac.HistoryRead, a.getHistory))
 
 	// Playback

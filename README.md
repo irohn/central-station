@@ -182,6 +182,18 @@ pushes them to GitHub Container Registry, and only then tags the commit.
   `read:packages` (`docker login ghcr.io -u <user>`; in Kubernetes a
   `docker-registry` pull secret).
 
+### Queued playlists
+
+Collaborators can paste a whole playlist (`youtube.com/playlist?list=…`,
+`music.youtube.com/playlist?list=…` or `music.youtube.com/browse/VL…`) into the
+same Add box. Playlists form a second queue with lower priority than songs: the
+song queue plays first, then each queued playlist in the order added, then the
+default playlist loops. A playlist is shuffled by default; its owner (or a
+manager, `playlist:remove_any`) can toggle shuffle or skip the whole playlist
+from the Playlists card. Tracks it produces carry `source: "playlist"` plus the
+playlist id and title. API: `POST /queue {"input": <playlist url>, "shuffle": bool}`,
+`PATCH /queue/playlists/{id} {"shuffle": bool}`, `DELETE /queue/playlists/{id}`.
+
 ### Sign-in allow-list
 
 `ALLOWED_EMAIL_DOMAINS` and `ALLOWED_EMAILS` list who may sign in; `ADMIN_EMAILS`

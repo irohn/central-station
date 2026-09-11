@@ -97,6 +97,13 @@ export function NowPlaying({ queue, player, user }: { queue: QueueState; player:
                 <span className="origin" title={`From the default playlist: ${cur.addedByName}`}>
                   <ListMusic width={14} height={14} /> default playlist
                 </span>
+              ) : cur.source === "playlist" ? (
+                <>
+                  <span className="origin" title={`From the playlist ${cur.playlistTitle ?? ""}, added by ${cur.addedByName}`}>
+                    <ListMusic width={14} height={14} /> {cur.playlistTitle}
+                  </span>
+                  <span className="muted"> · {cur.addedByName}</span>
+                </>
               ) : (
                 <> · added by {cur.addedByName}</>
               )}

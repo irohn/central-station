@@ -5,7 +5,7 @@ import { useLive } from "./useLive";
 import { Login } from "./components/Login";
 import { NowPlaying } from "./components/NowPlaying";
 import { QueueList } from "./components/QueueList";
-import { FallbackCard } from "./components/FallbackCard";
+import { PlaylistsCard } from "./components/PlaylistsCard";
 import { FallbackSettings } from "./components/FallbackSettings";
 import { History } from "./components/History";
 import { Users } from "./components/Users";
@@ -94,7 +94,7 @@ export default function App() {
           <>
             <NowPlaying queue={queue} player={player} user={user} />
             <QueueList queue={queue} user={user} onAdded={setQueue} />
-            <FallbackCard queue={queue} user={user} onManage={() => setView("fallback")} />
+            <PlaylistsCard queue={queue} user={user} onManage={() => setView("fallback")} />
           </>
         )}
         {view === "queue" && !queue && <div className="center muted">Loading queue…</div>}

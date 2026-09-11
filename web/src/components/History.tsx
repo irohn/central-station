@@ -21,7 +21,7 @@ export function History({ version }: { version: string }) {
               <div className="track-meta">
                 <a className="title" href={h.item.track.url} target="_blank" rel="noreferrer">{h.item.track.title}</a>
                 <div className="muted small">
-                  {h.item.track.artist ?? h.item.track.provider} · {h.item.source === "fallback" ? `default playlist (${h.item.addedByName})` : h.item.addedByName} · {new Date(h.endedAt).toLocaleString()}
+                  {h.item.track.artist ?? h.item.track.provider} · {h.item.source === "fallback" ? `default playlist (${h.item.addedByName})` : h.item.source === "playlist" ? `${h.item.addedByName} · playlist ${h.item.playlistTitle ?? ""}` : h.item.addedByName} · {new Date(h.endedAt).toLocaleString()}
                 </div>
                 {h.error && <div className="warn small">{h.error}</div>}
               </div>

@@ -41,9 +41,11 @@ export function QueueList({ queue, user, onAdded }: { queue: QueueState; user: U
       {error && <p className="error">{error}</p>}
       {queue.items.length === 0 ? (
         <p className="muted">
-          {queue.fallback?.enabled && queue.fallback.next
-            ? "Nobody has queued anything. Add a song and it plays right after the current track."
-            : "The queue is empty."}
+          {(queue.playlists?.length ?? 0) > 0
+            ? "No single songs queued. Add one and it plays right after the current track, before the playlists below."
+            : queue.fallback?.enabled && queue.fallback.next
+              ? "Nobody has queued anything. Add a song and it plays right after the current track."
+              : "The queue is empty."}
         </p>
       ) : (
         <ol className="queue">

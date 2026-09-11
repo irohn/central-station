@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { api, ApiError } from "../api";
-import type { QueueItem, QueueState } from "../types";
+import type { QueuedPlaylist, QueueItem, QueueState } from "../types";
 
 /** Inline "paste a link or search" form; lives in the Up next header. */
 export function AddForm({ onAdded, onResult }: { onAdded: (q: QueueState) => void; onResult: (msg: { ok?: string; error?: string } | null) => void }) {
@@ -13,9 +13,13 @@ export function AddForm({ onAdded, onResult }: { onAdded: (q: QueueState) => voi
     setBusy(true);
     onResult(null);
     try {
-      const res = await api<{ item: QueueItem; queue: QueueState }>("POST", "/queue", { input: input.trim() });
+      const res = await api<{ kind: "track" | "playlist"; item?: QueueItem; playlist?: QueuedPlaylist; queue: QueueState }>("POST", "/queue", { input: input.trim() });
       onAdded(res.queue);
-      onResult({ ok: `Queued: ${res.item.track.title}` });
+      onResult({
+        ok: res.kind === "playlist" && res.playlist
+          ? `Queued playlist: ${res.playlist.title} (${res.playlist.trackCount} tracks, plays after the songs above)`
+          : `Queued: ${res.item?.track.title ?? "track"}`,
+      });
       setInput("");
     } catch (err) {
       onResult({ error: err instanceof ApiError ? err.message : String(err) });
@@ -28,7 +32,7 @@ export function AddForm({ onAdded, onResult }: { onAdded: (q: QueueState) => voi
     <form className="add-inline" onSubmit={submit}>
       <input
         aria-label="Add to queue"
-        placeholder="Paste a YouTube link or search…"
+        placeholder="Paste a YouTube link, a playlist, or search…"
         value={input}
         onChange={(e) => setInput(e.target.value)}
         disabled={busy}

@@ -21,8 +21,15 @@ type Store interface {
 	// SetPlayback stores the playback row.
 	SetPlayback(ctx context.Context, status Status, current *Item, startedAt time.Time) error
 	// Transition atomically records ended (if non-nil) in history, removes
-	// next (if non-nil) from the queue, and stores the new playback row.
-	Transition(ctx context.Context, ended *HistoryEntry, next *Item, status Status, current *Item, startedAt time.Time) error
+	// next (if non-nil) from the queue, applies the playlist change (if
+	// non-nil) and stores the new playback row.
+	Transition(ctx context.Context, ended *HistoryEntry, next *Item, status Status, current *Item, startedAt time.Time, change *PlaylistChange) error
+	// InsertPlaylist appends a playlist to the end of the playlist queue.
+	InsertPlaylist(ctx context.Context, pl *QueuedPlaylist) error
+	// UpdatePlaylist rewrites a playlist (cursor, order, shuffle).
+	UpdatePlaylist(ctx context.Context, pl *QueuedPlaylist) error
+	// DeletePlaylist removes a queued playlist.
+	DeletePlaylist(ctx context.Context, id string) error
 	// History returns the newest entries first, at most limit.
 	History(ctx context.Context, limit int) ([]*HistoryEntry, error)
 }
@@ -30,6 +37,7 @@ type Store interface {
 // Persisted is what Load returns.
 type Persisted struct {
 	Items     []*Item
+	Playlists []*QueuedPlaylist
 	Status    Status
 	Current   *Item
 	StartedAt time.Time
@@ -39,6 +47,7 @@ type Persisted struct {
 type MemoryStore struct {
 	mu         sync.Mutex
 	items      []*Item
+	playlists  []*QueuedPlaylist
 	status     Status
 	current    *Item
 	startedAt  time.Time
@@ -56,7 +65,53 @@ func (m *MemoryStore) Load(context.Context) (*Persisted, error) {
 	defer m.mu.Unlock()
 	items := make([]*Item, len(m.items))
 	copy(items, m.items)
-	return &Persisted{Items: items, Status: m.status, Current: m.current, StartedAt: m.startedAt}, nil
+	pls := make([]*QueuedPlaylist, 0, len(m.playlists))
+	for _, p := range m.playlists {
+		cp := *p
+		pls = append(pls, &cp)
+	}
+	return &Persisted{Items: items, Playlists: pls, Status: m.status, Current: m.current, StartedAt: m.startedAt}, nil
+}
+
+func (m *MemoryStore) InsertPlaylist(_ context.Context, pl *QueuedPlaylist) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cp := *pl
+	m.playlists = append(m.playlists, &cp)
+	return nil
+}
+
+func (m *MemoryStore) UpdatePlaylist(_ context.Context, pl *QueuedPlaylist) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.updatePlaylistLocked(pl)
+}
+
+func (m *MemoryStore) updatePlaylistLocked(pl *QueuedPlaylist) error {
+	for i, p := range m.playlists {
+		if p.ID == pl.ID {
+			cp := *pl
+			m.playlists[i] = &cp
+			return nil
+		}
+	}
+	return ErrPlaylistNotFound
+}
+
+func (m *MemoryStore) DeletePlaylist(_ context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.deletePlaylistLocked(id)
+	return nil
+}
+
+func (m *MemoryStore) deletePlaylistLocked(id string) {
+	for i, p := range m.playlists {
+		if p.ID == id {
+			m.playlists = append(m.playlists[:i], m.playlists[i+1:]...)
+			return
+		}
+	}
 }
 
 func (m *MemoryStore) Insert(_ context.Context, it *Item) error {
@@ -106,9 +161,19 @@ func (m *MemoryStore) SetPlayback(_ context.Context, status Status, current *Ite
 	return nil
 }
 
-func (m *MemoryStore) Transition(_ context.Context, ended *HistoryEntry, next *Item, status Status, current *Item, startedAt time.Time) error {
+func (m *MemoryStore) Transition(_ context.Context, ended *HistoryEntry, next *Item, status Status, current *Item, startedAt time.Time, change *PlaylistChange) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if change != nil {
+		for _, u := range change.Updates {
+			if err := m.updatePlaylistLocked(u); err != nil {
+				return err
+			}
+		}
+		for _, id := range change.Removes {
+			m.deletePlaylistLocked(id)
+		}
+	}
 	if ended != nil {
 		m.history = append(m.history, ended)
 		if len(m.history) > m.maxHistory {
