@@ -59,6 +59,19 @@ func TestProductionGuards(t *testing.T) {
 	}
 }
 
+func TestRolePermissions(t *testing.T) {
+	c, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true", "ROLE_PERMISSIONS_COLLABORATOR": " queue:add, Volume:Control ", "ROLE_PERMISSIONS_MANAGER": ""}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.RolePermissions) != 1 || len(c.RolePermissions["collaborator"]) != 2 || c.RolePermissions["collaborator"][1] != "volume:control" {
+		t.Fatalf("role permissions = %v", c.RolePermissions)
+	}
+	if _, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true", "ROLE_PERMISSIONS_LISTENER": "queue:read,nope:x"})); err == nil {
+		t.Fatal("unknown permission accepted")
+	}
+}
+
 func TestAccessAllowlistFlag(t *testing.T) {
 	base := map[string]string{"AUTH_DEV_MODE": "true"}
 	if c, _ := LoadFrom(env(base)); c.AccessAllowlist {

@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"central-station/internal/rbac"
 )
 
 // Config is the fully resolved runtime configuration.
@@ -36,6 +38,10 @@ type Config struct {
 	AllowedEmails       []string
 	AdminEmails         []string
 	DefaultRole         string
+
+	// RolePermissions overrides the permissions a role level introduces, from
+	// ROLE_PERMISSIONS_<ROLE> (comma-separated). Roles not set keep defaults.
+	RolePermissions map[rbac.Role][]rbac.Permission
 
 	DefaultProvider string
 	YouTubeAPIKey   string
@@ -97,6 +103,23 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	}
 	if c.FallbackShuffle, err = parseBool(getenv("FALLBACK_SHUFFLE"), true); err != nil {
 		return nil, fmt.Errorf("FALLBACK_SHUFFLE: %w", err)
+	}
+	c.RolePermissions = map[rbac.Role][]rbac.Permission{}
+	for _, role := range rbac.AllRoles {
+		key := "ROLE_PERMISSIONS_" + strings.ToUpper(string(role))
+		raw := getenv(key)
+		if strings.TrimSpace(raw) == "" {
+			continue
+		}
+		var perms []rbac.Permission
+		for _, p := range splitList(raw) {
+			parsed, err := rbac.ParsePermission(p)
+			if err != nil {
+				return nil, fmt.Errorf("%s: %w", key, err)
+			}
+			perms = append(perms, parsed)
+		}
+		c.RolePermissions[role] = perms
 	}
 	listsSet := len(c.AllowedEmailDomains) > 0 || len(c.AllowedEmails) > 0
 	if c.AccessAllowlist, err = parseBool(getenv("ACCESS_ALLOWLIST"), listsSet); err != nil {

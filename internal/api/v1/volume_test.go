@@ -10,8 +10,12 @@ func TestVolumeEndpoint(t *testing.T) {
 	if r := a.do("GET", "/player", collab, nil); r.Status != 200 || r.Body["volume"].(float64) != 80 {
 		t.Fatalf("default volume: %d %v", r.Status, r.Body)
 	}
-	if r := a.do("POST", "/playback/volume", collab, map[string]int{"volume": 50}); r.Status != 403 {
-		t.Fatalf("collaborator: %d", r.Status)
+	lis, _ := a.login("l@example.com", "listener")
+	if r := a.do("POST", "/playback/volume", lis, map[string]int{"volume": 50}); r.Status != 403 {
+		t.Fatalf("listener: %d", r.Status)
+	}
+	if r := a.do("POST", "/playback/volume", collab, map[string]int{"volume": 50}); r.Status != 200 {
+		t.Fatalf("collaborator: %d %v", r.Status, r.Body)
 	}
 	if r := a.do("POST", "/playback/volume", mgr, map[string]int{"volume": 150}); r.Status != 400 || errCode(r) != "invalid_volume" {
 		t.Fatalf("out of range: %d %v", r.Status, r.Body)

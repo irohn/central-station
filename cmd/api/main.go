@@ -22,6 +22,7 @@ import (
 	"central-station/internal/provider"
 	"central-station/internal/provider/youtube"
 	"central-station/internal/queue"
+	"central-station/internal/rbac"
 	"central-station/internal/server"
 	"central-station/internal/settings"
 	"central-station/internal/store"
@@ -62,6 +63,12 @@ func run() error {
 	slog.SetDefault(logger)
 	for _, w := range cfg.Warnings {
 		logger.Warn(w)
+	}
+	if err := rbac.Configure(cfg.RolePermissions); err != nil {
+		return fmt.Errorf("ROLE_PERMISSIONS: %w", err)
+	}
+	if len(cfg.RolePermissions) > 0 {
+		logger.Info("role permissions overridden", "roles", len(cfg.RolePermissions))
 	}
 
 	registry, err := provider.NewRegistry(cfg.DefaultProvider, youtube.New(cfg.YouTubeAPIKey))

@@ -7,7 +7,9 @@ package rbac
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 )
 
 // Role is a named bundle of permissions assigned to a user.
@@ -33,6 +35,7 @@ const (
 	QueueAdd       Permission = "queue:add"
 	QueueRemoveOwn Permission = "queue:remove_own"
 	PlaylistWrite  Permission = "playlist:write" // collaborative office playlists
+	VolumeControl  Permission = "volume:control" // set the output level
 
 	// Manager.
 	QueueRemoveAny  Permission = "queue:remove_any"
@@ -54,12 +57,90 @@ var roleLevel = map[Role]int{
 	RoleAdmin:        3,
 }
 
-// grants lists the permissions introduced at each level.
-var grants = map[Role][]Permission{
+// AllPermissions lists every permission the API knows about.
+var AllPermissions = []Permission{
+	QueueRead, HistoryRead, TrackResolve,
+	QueueAdd, QueueRemoveOwn, PlaylistWrite, VolumeControl,
+	QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage,
+	SettingsManage, UsersManage, IntegrationsManage,
+}
+
+// DefaultGrants lists the permissions introduced at each level.
+var DefaultGrants = map[Role][]Permission{
 	RoleListener:     {QueueRead, HistoryRead, TrackResolve},
-	RoleCollaborator: {QueueAdd, QueueRemoveOwn, PlaylistWrite},
+	RoleCollaborator: {QueueAdd, QueueRemoveOwn, PlaylistWrite, VolumeControl},
 	RoleManager:      {QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage},
 	RoleAdmin:        {SettingsManage, UsersManage, IntegrationsManage},
+}
+
+// grants is the active policy; see Configure.
+var (
+	grantsMu sync.RWMutex
+	grants   = copyGrants(DefaultGrants)
+)
+
+func copyGrants(g map[Role][]Permission) map[Role][]Permission {
+	out := make(map[Role][]Permission, len(g))
+	for r, ps := range g {
+		out[r] = append([]Permission(nil), ps...)
+	}
+	return out
+}
+
+// Configure replaces the permissions introduced at the given levels (the
+// defaults stay for roles that are not listed). Roles remain cumulative, and
+// admins always hold every permission so a misconfiguration can never lock
+// the administrators out. Unknown roles or permissions are rejected.
+func Configure(overrides map[Role][]Permission) error {
+	next := copyGrants(DefaultGrants)
+	for role, perms := range overrides {
+		if !role.Valid() {
+			return fmt.Errorf("unknown role %q", role)
+		}
+		clean := make([]Permission, 0, len(perms))
+		for _, p := range perms {
+			parsed, err := ParsePermission(string(p))
+			if err != nil {
+				return fmt.Errorf("role %s: %w", role, err)
+			}
+			clean = append(clean, parsed)
+		}
+		next[role] = clean
+	}
+	grantsMu.Lock()
+	grants = next
+	grantsMu.Unlock()
+	return nil
+}
+
+// ResetGrants restores the default policy (tests).
+func ResetGrants() {
+	grantsMu.Lock()
+	grants = copyGrants(DefaultGrants)
+	grantsMu.Unlock()
+}
+
+// Grants returns the permissions introduced at each level under the active policy.
+func Grants() map[Role][]Permission {
+	grantsMu.RLock()
+	defer grantsMu.RUnlock()
+	return copyGrants(grants)
+}
+
+// ParsePermission validates a permission name (case-insensitive).
+func ParsePermission(s string) (Permission, error) {
+	p := Permission(strings.ToLower(strings.TrimSpace(s)))
+	for _, known := range AllPermissions {
+		if known == p {
+			return p, nil
+		}
+	}
+	names := make([]string, len(AllPermissions))
+	for i, k := range AllPermissions {
+		names[i] = string(k)
+	}
+	sort.Strings(names)
+	return "", fmt.Errorf("unknown permission %q (valid: %s)", s, strings.Join(names, ", "))
 }
 
 // AllRoles lists roles from least to most privileged.
@@ -87,15 +168,27 @@ func (r Role) Level() int { return roleLevel[r] }
 // AtLeast reports whether r is the same as or more privileged than other.
 func (r Role) AtLeast(other Role) bool { return r.Valid() && roleLevel[r] >= roleLevel[other] }
 
-// Permissions returns every permission the role grants.
+// Permissions returns every permission the role grants (deduplicated, in
+// definition order). Admins always get everything.
 func (r Role) Permissions() []Permission {
 	if !r.Valid() {
 		return nil
 	}
+	if r == RoleAdmin {
+		return append([]Permission(nil), AllPermissions...)
+	}
+	grantsMu.RLock()
+	defer grantsMu.RUnlock()
+	seen := map[Permission]bool{}
 	var out []Permission
 	for _, role := range AllRoles {
 		if roleLevel[role] <= roleLevel[r] {
-			out = append(out, grants[role]...)
+			for _, p := range grants[role] {
+				if !seen[p] {
+					seen[p] = true
+					out = append(out, p)
+				}
+			}
 		}
 	}
 	return out

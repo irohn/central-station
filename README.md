@@ -190,10 +190,19 @@ without touching the lists (unset: enforced iff a list is non-empty). Keep the
 lists filled and flip the flag when the app's exposure changes, e.g. from a
 private tailnet to the public internet.
 
+### Roles and permissions
+
+Roles are cumulative (`listener < collaborator < manager < admin`) and each level
+introduces a set of permissions (see `internal/rbac`). The sets can be replaced
+per level with `ROLE_PERMISSIONS_<ROLE>` (comma-separated permission names), so a
+deployment can, say, let collaborators skip tracks without a code change. Unknown
+names fail startup; admins always hold every permission. `GET /api/v1/roles`
+shows the active policy.
+
 ### Volume
 
-Managers set the output level from the Now Playing card (`POST
-/api/v1/playback/volume {"volume": 0-100}`). It is mpv's software volume, applied
+Collaborators and above set the output level from the Now Playing card (`POST
+/api/v1/playback/volume {"volume": 0-100}`, permission `volume:control`). It is mpv's software volume, applied
 by the player on every state push and persisted in the `settings` table, so 100%
 equals whatever the host mixer is set to. Everyone sees the current level in the
 player status.

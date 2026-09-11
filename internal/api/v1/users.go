@@ -21,7 +21,7 @@ func (a *api) listRoles(w http.ResponseWriter, _ *http.Request) error {
 	for _, r := range rbac.AllRoles {
 		out = append(out, roleDTO{Role: r, Level: r.Level(), Permissions: r.Permissions()})
 	}
-	httpx.JSON(w, http.StatusOK, map[string]any{"roles": out})
+	httpx.JSON(w, http.StatusOK, map[string]any{"roles": out, "permissions": rbac.AllPermissions, "grants": rbac.Grants()})
 	return nil
 }
 

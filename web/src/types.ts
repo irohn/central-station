@@ -2,7 +2,7 @@ export type Role = "listener" | "collaborator" | "manager" | "admin";
 
 export type Permission =
   | "queue:read" | "history:read" | "track:resolve"
-  | "queue:add" | "queue:remove_own" | "playlist:write"
+  | "queue:add" | "queue:remove_own" | "playlist:write" | "volume:control"
   | "queue:remove_any" | "queue:reorder" | "playback:control" | "fallback:manage"
   | "settings:manage" | "users:manage" | "integrations:manage";
 

@@ -106,7 +106,7 @@ export function NowPlaying({ queue, player, user }: { queue: QueueState; player:
           </div>
         </div>
       )}
-      <VolumeRow player={player} canControl={canControl} />
+      <VolumeRow player={player} canControl={user.permissions.includes("volume:control")} />
       {canControl && cur && (
         <div className="row controls">
           {queue.status === "paused" ? (
