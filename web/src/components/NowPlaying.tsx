@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { api, ApiError, fmtTime } from "../api";
 import type { PlayerStatus, QueueState, User } from "../types";
+import { ListMusic } from "./Icons";
 
 export function NowPlaying({ queue, player, user }: { queue: QueueState; player: PlayerStatus; user: User }) {
   const [busy, setBusy] = useState<string | null>(null);
@@ -30,13 +31,26 @@ export function NowPlaying({ queue, player, user }: { queue: QueueState; player:
         <span className={`pill ${queue.status}`}>{queue.status}</span>
       </div>
       {!cur ? (
-        <p className="muted">Nothing is playing. Add a song to get things going.</p>
+        <p className="muted">
+          {queue.fallback?.enabled
+            ? "Nothing is playing yet. The default playlist starts as soon as the player is ready."
+            : "Nothing is playing. Add a song to get things going."}
+        </p>
       ) : (
         <div className="track-row big">
           {cur.track.thumbnailUrl && <img className="thumb" src={cur.track.thumbnailUrl} alt="" />}
           <div className="track-meta">
             <a className="title" href={cur.track.url} target="_blank" rel="noreferrer">{cur.track.title}</a>
-            <div className="muted">{cur.track.artist ?? cur.track.provider} · added by {cur.addedByName}</div>
+            <div className="muted">
+              {cur.track.artist ?? cur.track.provider}
+              {cur.source === "fallback" ? (
+                <span className="origin" title={`From the default playlist: ${cur.addedByName}`}>
+                  <ListMusic width={14} height={14} /> default playlist
+                </span>
+              ) : (
+                <> · added by {cur.addedByName}</>
+              )}
+            </div>
             <div className="progress"><div className="bar" style={{ width: `${pct}%` }} /></div>
             <div className="muted small">{fmtTime(pos)} / {dur > 0 ? fmtTime(dur) : "–:––"}</div>
           </div>

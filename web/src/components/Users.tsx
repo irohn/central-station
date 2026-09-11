@@ -25,27 +25,27 @@ export function Users({ me }: { me: User }) {
 
   return (
     <section className="card">
-      <h2>Users</h2>
+      <div className="row space-between">
+        <h2>Users</h2>
+        <span className="muted small">{users.length}</span>
+      </div>
+      <p className="muted small">Roles are cumulative: listener &lt; collaborator &lt; manager &lt; admin.</p>
       {error && <p className="error">{error}</p>}
-      <table className="users">
-        <thead>
-          <tr><th>Name</th><th>Email</th><th>Role</th><th>Last login</th></tr>
-        </thead>
-        <tbody>
-          {users.map((u) => (
-            <tr key={u.id}>
-              <td>{u.name}{u.id === me.id ? " (you)" : ""}</td>
-              <td className="muted">{u.email}</td>
-              <td>
-                <select value={u.role} disabled={u.id === me.id} onChange={(e) => setRole(u.id, e.target.value as Role)}>
-                  {roles.map((r) => <option key={r} value={r}>{r}</option>)}
-                </select>
-              </td>
-              <td className="muted small">{new Date(u.lastLoginAt).toLocaleString()}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <ul className="user-list">
+        {users.map((u) => (
+          <li key={u.id} className="user-row">
+            {u.pictureUrl ? <img src={u.pictureUrl} alt="" className="avatar lg" /> : <span className="avatar lg initial">{u.name.slice(0, 1)}</span>}
+            <div className="track-meta">
+              <div className="strong ellipsis">{u.name}{u.id === me.id ? <span className="muted"> (you)</span> : ""}</div>
+              <div className="muted small ellipsis">{u.email}</div>
+              <div className="muted small">Last seen {new Date(u.lastLoginAt).toLocaleDateString()}</div>
+            </div>
+            <select className="role-select" value={u.role} disabled={u.id === me.id} aria-label={`Role for ${u.name}`} onChange={(e) => setRole(u.id, e.target.value as Role)}>
+              {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

@@ -6,16 +6,22 @@ import { Login } from "./components/Login";
 import { NowPlaying } from "./components/NowPlaying";
 import { AddForm } from "./components/AddForm";
 import { QueueList } from "./components/QueueList";
+import { FallbackCard } from "./components/FallbackCard";
+import { FallbackSettings } from "./components/FallbackSettings";
 import { History } from "./components/History";
 import { Users } from "./components/Users";
+import { SettingsMenu } from "./components/SettingsMenu";
 import { ThemeToggle } from "./components/ThemeToggle";
+import { ChevronLeft } from "./components/Icons";
 import { useTheme } from "./theme";
 
-type Tab = "queue" | "history" | "users";
+type View = "queue" | "history" | "users" | "fallback";
+
+const subpageTitles: Record<"users" | "fallback", string> = { users: "Users", fallback: "Default playlist" };
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
-  const [tab, setTab] = useState<Tab>("queue");
+  const [requestedView, setView] = useState<View>("queue");
   const { queue, player, connected, setQueue } = useLive(!!user);
   const [theme, toggleTheme] = useTheme();
 
@@ -31,6 +37,7 @@ export default function App() {
   async function logout() {
     await api("POST", "/auth/logout").catch(() => {});
     setUser(null);
+    setView("queue");
   }
 
   if (user === undefined) return <div className="center muted">Loading…</div>;
@@ -44,32 +51,47 @@ export default function App() {
   }
 
   const isAdmin = user.permissions.includes("users:manage");
+  const canManageFallback = user.permissions.includes("fallback:manage");
+  // Fall back to the queue when the role cannot use the requested page (e.g. after a role change).
+  const view: View =
+    (requestedView === "users" && !isAdmin) || (requestedView === "fallback" && !canManageFallback) ? "queue" : requestedView;
+  const subpage = view === "users" || view === "fallback";
 
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">Central Station</div>
-        <nav className="tabs">
-          <button className={tab === "queue" ? "active" : ""} onClick={() => setTab("queue")}>Queue</button>
-          <button className={tab === "history" ? "active" : ""} onClick={() => setTab("history")}>History</button>
-          {isAdmin && <button className={tab === "users" ? "active" : ""} onClick={() => setTab("users")}>Users</button>}
+        <nav className="tabs" aria-label="Main">
+          <button className={view === "queue" ? "active" : ""} onClick={() => setView("queue")}>Queue</button>
+          <button className={view === "history" ? "active" : ""} onClick={() => setView("history")}>History</button>
         </nav>
-        <div className="status">
-          <span className={`dot ${player.online ? "on" : "off"}`} title={player.online ? `Player online: ${player.name ?? ""}` : "No player connected"} />
-          <span className="muted small">{player.online ? player.name ?? "player" : "no player"}</span>
-          {!connected && <span className="muted small"> · reconnecting…</span>}
+        <div className="topbar-right">
+          <div className="user" title={`${user.name} · ${user.role}`}>
+            {user.pictureUrl ? <img src={user.pictureUrl} alt="" className="avatar" /> : <span className="avatar initial">{user.name.slice(0, 1)}</span>}
+            <span className="user-name">{user.name}</span>
+          </div>
+          <SettingsMenu
+            user={user}
+            player={player}
+            connected={connected}
+            theme={theme}
+            onToggleTheme={toggleTheme}
+            onNavigate={setView}
+            onLogout={logout}
+          />
         </div>
-        <div className="user">
-          {user.pictureUrl && <img src={user.pictureUrl} alt="" className="avatar" />}
-          <span>{user.name}</span>
-          <span className="pill role">{user.role}</span>
-          <button className="btn link" onClick={logout}>Sign out</button>
-        </div>
-        <ThemeToggle theme={theme} onToggle={toggleTheme} />
       </header>
 
+      {!connected && <div className="banner warn-banner">Connection lost, reconnecting…</div>}
+
       <main>
-        {tab === "queue" && queue && (
+        {subpage && (
+          <div className="subpage-head">
+            <button className="btn icon back" onClick={() => setView("queue")} aria-label="Back to queue"><ChevronLeft /></button>
+            <h1>{subpageTitles[view]}</h1>
+          </div>
+        )}
+
+        {view === "queue" && queue && (
           <>
             <NowPlaying queue={queue} player={player} user={user} />
             {user.permissions.includes("queue:add") ? (
@@ -78,11 +100,13 @@ export default function App() {
               <p className="muted small">You are a listener. Ask a manager for collaborator access to add songs.</p>
             )}
             <QueueList queue={queue} user={user} />
+            <FallbackCard queue={queue} user={user} onManage={() => setView("fallback")} />
           </>
         )}
-        {tab === "queue" && !queue && <div className="center muted">Loading queue…</div>}
-        {tab === "history" && <History version={queue?.updatedAt ?? ""} />}
-        {tab === "users" && isAdmin && <Users me={user} />}
+        {view === "queue" && !queue && <div className="center muted">Loading queue…</div>}
+        {view === "history" && <History version={queue?.updatedAt ?? ""} />}
+        {view === "users" && isAdmin && <Users me={user} />}
+        {view === "fallback" && canManageFallback && <FallbackSettings user={user} />}
       </main>
     </div>
   );

@@ -33,7 +33,11 @@ export function QueueList({ queue, user }: { queue: QueueState; user: User }) {
       </div>
       {error && <p className="error">{error}</p>}
       {queue.items.length === 0 ? (
-        <p className="muted">The queue is empty.</p>
+        <p className="muted">
+          {queue.fallback?.enabled && queue.fallback.next
+            ? "Nobody has queued anything. Add a song and it plays right after the current track."
+            : "The queue is empty."}
+        </p>
       ) : (
         <ol className="queue">
           {queue.items.map((it, i) => {

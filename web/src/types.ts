@@ -3,7 +3,7 @@ export type Role = "listener" | "collaborator" | "manager" | "admin";
 export type Permission =
   | "queue:read" | "history:read" | "track:resolve"
   | "queue:add" | "queue:remove_own" | "playlist:write"
-  | "queue:remove_any" | "queue:reorder" | "playback:control"
+  | "queue:remove_any" | "queue:reorder" | "playback:control" | "fallback:manage"
   | "settings:manage" | "users:manage" | "integrations:manage";
 
 export interface User {
@@ -31,8 +31,41 @@ export interface QueueItem {
   id: string;
   track: Track;
   addedById: string;
+  /** For fallback items this is the playlist title. */
   addedByName: string;
   addedAt: string;
+  /** "fallback" when the default playlist supplied the track. */
+  source?: "fallback";
+}
+
+/** Default-playlist summary embedded in every queue snapshot. */
+export interface FallbackState {
+  enabled: boolean;
+  playlistTitle?: string;
+  playlistUrl?: string;
+  trackCount: number;
+  shuffle: boolean;
+  next?: Track;
+}
+
+export interface FallbackPlaylist {
+  provider: string;
+  id: string;
+  url: string;
+  title: string;
+  trackCount: number;
+  fetchedAt: string;
+  tracks?: Track[];
+}
+
+/** GET/PUT /settings/fallback */
+export interface FallbackView {
+  url: string;
+  enabled: boolean;
+  shuffle: boolean;
+  playlist?: FallbackPlaylist;
+  next?: Track;
+  updatedAt?: string;
 }
 
 export type PlaybackStatus = "idle" | "playing" | "paused";
@@ -43,6 +76,7 @@ export interface QueueState {
   startedAt?: string;
   items: QueueItem[];
   updatedAt: string;
+  fallback?: FallbackState;
 }
 
 export interface HistoryEntry {
