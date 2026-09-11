@@ -178,6 +178,7 @@ Audio leaves the container through a host audio socket:
 | WSL2 (WSLg) | `PULSE_SOCKET=/mnt/wslg/PulseServer`, `MPV_AO=pulse` (defaults) |
 | Linux desktop (PulseAudio or PipeWire) | `PULSE_SOCKET=/run/user/1000/pulse/native`, `MPV_AO=pulse`. If the server rejects the connection, also mount `~/.config/pulse/cookie` to `/tmp/.config/pulse/cookie` |
 | Headless Linux server, no audio daemon | remove the pulse volume, uncomment `devices: /dev/snd` and `group_add: audio` in the compose file, set `MPV_AO=alsa` (optionally `MPV_AUDIO_DEVICE=alsa/hw:0,0`) |
+| macOS (Docker Desktop) | No socket mount is possible; the player connects over TCP to PulseAudio running on the Mac. `brew install pulseaudio`, run `./scripts/mac-audio.sh` (listens on `127.0.0.1:4713`, plays through the Mac's current output device), and set `COMPOSE_FILE=docker-compose.yml:docker-compose.mac.yml` in `.env` so `make up` applies the override. Restart the script after a reboot. |
 
 yt-dlp is fetched at image build time. When YouTube changes its pages and tracks start
 failing with "error" in the history, rebuild the player image:

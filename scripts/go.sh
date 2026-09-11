@@ -19,7 +19,7 @@ if [ -t 0 ] && [ -t 1 ]; then TTY=(-it); fi
 EXTRA=()
 if [ -n "${GO_DOCKER_ARGS:-}" ]; then read -r -a EXTRA <<<"$GO_DOCKER_ARGS"; fi
 
-exec docker run --rm "${TTY[@]}" \
+exec docker run --rm ${TTY[@]+"${TTY[@]}"} \
   -u "$(id -u):$(id -g)" \
   -e HOME=/tmp \
   -e GOMODCACHE=/go/pkg/mod \
@@ -27,7 +27,7 @@ exec docker run --rm "${TTY[@]}" \
   -e GOFLAGS="${GOFLAGS:-}" \
   -e CGO_ENABLED=0 \
   -e TEST_DATABASE_URL="${TEST_DATABASE_URL:-}" \
-  "${EXTRA[@]}" \
+  ${EXTRA[@]+"${EXTRA[@]}"} \
   -v "$CACHE/pkg:/go/pkg" \
   -v "$CACHE/build:/go/cache" \
   -v "$ROOT:/src" \

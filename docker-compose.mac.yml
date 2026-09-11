@@ -1,0 +1,16 @@
+# macOS override: Docker Desktop cannot bind-mount a host audio socket, so the
+# player talks to a PulseAudio daemon running on the Mac over TCP instead.
+#
+#   brew install pulseaudio
+#   ./scripts/mac-audio.sh            # starts PulseAudio on 127.0.0.1:4713
+#   docker compose -f docker-compose.yml -f docker-compose.mac.yml up --build -d
+#
+# Or set COMPOSE_FILE=docker-compose.yml:docker-compose.mac.yml in .env so plain
+# `docker compose up` / `make up` picks this file up automatically.
+services:
+  player:
+    environment:
+      PULSE_SERVER: tcp:host.docker.internal:${PULSE_TCP_PORT:-4713}
+    volumes: !reset []
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
