@@ -55,6 +55,15 @@ type Config struct {
 	// TTSURL is the text-to-speech service (tts/ in this repo). Empty disables typed announcements.
 	TTSURL string
 
+	// Clip limits keep announcements from filling the database: at most
+	// ClipsMaxSaved user clips (bundled chimes excluded), each at most
+	// ClipsMaxBytes and ClipsMaxDurationSeconds long; typed announcements at
+	// most TTSMaxChars characters. Worst case ≈ ClipsMaxSaved × ClipsMaxBytes.
+	ClipsMaxSaved           int
+	ClipsMaxBytes           int
+	ClipsMaxDurationSeconds int
+	TTSMaxChars             int
+
 	AuthDevMode bool
 
 	// PlayerToken authenticates the headless player container. Empty disables the player socket.
@@ -124,6 +133,22 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 			perms = append(perms, parsed)
 		}
 		c.RolePermissions[role] = perms
+	}
+	for _, lim := range []struct {
+		key string
+		dst *int
+		def int
+	}{
+		{"CLIPS_MAX_SAVED", &c.ClipsMaxSaved, 50},
+		{"CLIPS_MAX_BYTES", &c.ClipsMaxBytes, 5 << 20},
+		{"CLIPS_MAX_DURATION_SECONDS", &c.ClipsMaxDurationSeconds, 60},
+		{"TTS_MAX_CHARS", &c.TTSMaxChars, 600},
+	} {
+		v, err := parseInt(getenv(lim.key), lim.def)
+		if err != nil || v < 1 {
+			return nil, fmt.Errorf("%s: must be a positive integer", lim.key)
+		}
+		*lim.dst = v
 	}
 	listsSet := len(c.AllowedEmailDomains) > 0 || len(c.AllowedEmails) > 0
 	if c.AccessAllowlist, err = parseBool(getenv("ACCESS_ALLOWLIST"), listsSet); err != nil {
@@ -220,6 +245,13 @@ func parseDuration(s string, def time.Duration) (time.Duration, error) {
 		return def, nil
 	}
 	return time.ParseDuration(s)
+}
+
+func parseInt(s string, def int) (int, error) {
+	if strings.TrimSpace(s) == "" {
+		return def, nil
+	}
+	return strconv.Atoi(strings.TrimSpace(s))
 }
 
 func parseBool(s string, def bool) (bool, error) {

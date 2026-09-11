@@ -72,6 +72,20 @@ func TestRolePermissions(t *testing.T) {
 	}
 }
 
+func TestClipLimits(t *testing.T) {
+	c, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true"}))
+	if err != nil || c.ClipsMaxSaved != 50 || c.ClipsMaxBytes != 5<<20 || c.ClipsMaxDurationSeconds != 60 || c.TTSMaxChars != 600 {
+		t.Fatalf("defaults: %v %+v", err, c)
+	}
+	c, err = LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true", "CLIPS_MAX_SAVED": "5", "TTS_MAX_CHARS": "100"}))
+	if err != nil || c.ClipsMaxSaved != 5 || c.TTSMaxChars != 100 {
+		t.Fatalf("overrides: %v %+v", err, c)
+	}
+	if _, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true", "CLIPS_MAX_SAVED": "0"})); err == nil {
+		t.Fatal("zero accepted")
+	}
+}
+
 func TestAccessAllowlistFlag(t *testing.T) {
 	base := map[string]string{"AUTH_DEV_MODE": "true"}
 	if c, _ := LoadFrom(env(base)); c.AccessAllowlist {

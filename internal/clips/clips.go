@@ -37,7 +37,8 @@ type Clip struct {
 	Mime            string    `json:"mime"`
 	Size            int       `json:"size"`
 	DurationSeconds float64   `json:"durationSeconds,omitempty"`
-	Text            string    `json:"text,omitempty"` // TTS source text
+	Text            string    `json:"text,omitempty"`  // TTS source text
+	Voice           string    `json:"voice,omitempty"` // TTS voice id
 	CreatedByID     string    `json:"createdById,omitempty"`
 	CreatedByName   string    `json:"createdByName,omitempty"`
 	CreatedAt       time.Time `json:"createdAt"`

@@ -20,7 +20,61 @@ import (
 	"central-station/internal/tts"
 )
 
-const chimeKey = "chime.default"
+const (
+	chimeKey = "chime.default"
+	voiceKey = "tts.voice"
+)
+
+// userClipCount counts clips that count against CLIPS_MAX_SAVED (bundled chimes don't).
+func (a *api) userClipCount(ctx context.Context) (int, error) {
+	list, err := a.Clips.List(ctx)
+	if err != nil {
+		return 0, err
+	}
+	n := 0
+	for _, c := range list {
+		if !c.Builtin {
+			n++
+		}
+	}
+	return n, nil
+}
+
+func (a *api) checkClipCap(ctx context.Context) error {
+	n, err := a.userClipCount(ctx)
+	if err != nil {
+		return err
+	}
+	if n >= a.Config.ClipsMaxSaved {
+		return httpx.Conflict("clip_limit", "the limit of %d saved clips is reached; delete one first", a.Config.ClipsMaxSaved)
+	}
+	return nil
+}
+
+// voices returns the TTS voices and the effective default (admin setting, else service default).
+func (a *api) voices(ctx context.Context) ([]tts.Voice, string) {
+	if !a.TTS.Enabled() {
+		return nil, ""
+	}
+	vctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	list, def, err := a.TTS.Voices(vctx)
+	if err != nil {
+		return nil, ""
+	}
+	if a.Settings != nil {
+		if raw, err := a.Settings.Get(ctx, voiceKey); err == nil {
+			want := strings.Trim(string(raw), "\"")
+			for _, v := range list {
+				if v.ID == want {
+					def = want
+					break
+				}
+			}
+		}
+	}
+	return list, def
+}
 
 func (a *api) requireClips() error {
 	if a.Clips == nil {
@@ -54,14 +108,28 @@ func (a *api) listClips(w http.ResponseWriter, r *http.Request) error {
 	if list == nil {
 		list = []*clips.Clip{}
 	}
+	saved := 0
+	for _, c := range list {
+		if !c.Builtin {
+			saved++
+		}
+	}
+	voices, defVoice := a.voices(r.Context())
+	if voices == nil {
+		voices = []tts.Voice{}
+	}
 	httpx.JSON(w, http.StatusOK, map[string]any{
 		"clips":          list,
 		"defaultChimeId": a.defaultChimeID(r.Context()),
 		"ttsAvailable":   a.TTS.Enabled(),
-		"maxDurationSec": clips.MaxDurationSeconds,
-		"maxBytes":       clips.MaxBytes,
+		"voices":         voices,
+		"defaultVoice":   defVoice,
+		"savedCount":     saved,
+		"maxSaved":       a.Config.ClipsMaxSaved,
+		"maxDurationSec": a.Config.ClipsMaxDurationSeconds,
+		"maxBytes":       a.Config.ClipsMaxBytes,
 		"maxLoops":       player.MaxBroadcastLoops,
-		"maxTextChars":   tts.MaxChars,
+		"maxTextChars":   a.Config.TTSMaxChars,
 	})
 	return nil
 }
@@ -72,21 +140,25 @@ func (a *api) uploadClip(w http.ResponseWriter, r *http.Request) error {
 		return err
 	}
 	u := auth.MustUser(r)
-	r.Body = http.MaxBytesReader(w, r.Body, clips.MaxBytes+64<<10)
-	if err := r.ParseMultipartForm(clips.MaxBytes); err != nil {
-		return httpx.BadRequest("invalid_upload", "could not read upload (max %d MB): %v", clips.MaxBytes>>20, err)
+	if err := a.checkClipCap(r.Context()); err != nil {
+		return err
+	}
+	maxBytes := int64(a.Config.ClipsMaxBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, maxBytes+64<<10)
+	if err := r.ParseMultipartForm(maxBytes); err != nil {
+		return httpx.BadRequest("invalid_upload", "could not read upload (max %d MB): %v", maxBytes>>20, err)
 	}
 	f, hdr, err := r.FormFile("file")
 	if err != nil {
 		return httpx.BadRequest("invalid_upload", "file is required")
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, clips.MaxBytes+1))
+	data, err := io.ReadAll(io.LimitReader(f, maxBytes+1))
 	if err != nil {
 		return err
 	}
-	if len(data) == 0 || len(data) > clips.MaxBytes {
-		return httpx.BadRequest("invalid_upload", "file must be between 1 byte and %d MB", clips.MaxBytes>>20)
+	if len(data) == 0 || int64(len(data)) > maxBytes {
+		return httpx.BadRequest("invalid_upload", "file must be between 1 byte and %d MB", maxBytes>>20)
 	}
 	mime := clips.NormalizeMime(hdr.Header.Get("Content-Type"))
 	if mime == "" || mime == "application/octet-stream" {
@@ -103,8 +175,8 @@ func (a *api) uploadClip(w http.ResponseWriter, r *http.Request) error {
 		return httpx.BadRequest("invalid_kind", "kind must be recording or chime")
 	}
 	dur, _ := strconv.ParseFloat(r.FormValue("durationSeconds"), 64)
-	if dur < 0 || dur > clips.MaxDurationSeconds+1 {
-		return httpx.BadRequest("too_long", "recordings are limited to %d seconds", clips.MaxDurationSeconds)
+	if dur < 0 || dur > float64(a.Config.ClipsMaxDurationSeconds)+1 {
+		return httpx.BadRequest("too_long", "recordings are limited to %d seconds", a.Config.ClipsMaxDurationSeconds)
 	}
 	if mime == "audio/wav" && dur == 0 {
 		dur = tts.WAVDuration(data)
@@ -122,48 +194,122 @@ func (a *api) uploadClip(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// POST /clips/tts  {"name": "...", "text": "..."}
+type ttsRequest struct {
+	Name  string `json:"name"`
+	Text  string `json:"text"`
+	Voice string `json:"voice"`
+}
+
+// synthesize validates a TTS request and returns the audio and the voice used.
+func (a *api) synthesize(r *http.Request) (*ttsRequest, []byte, error) {
+	if !a.TTS.Enabled() {
+		return nil, nil, httpx.NewError(http.StatusServiceUnavailable, "tts_unavailable", "text-to-speech is not configured on this server")
+	}
+	var body ttsRequest
+	if err := httpx.Decode(r, &body, false); err != nil {
+		return nil, nil, err
+	}
+	body.Text = strings.TrimSpace(body.Text)
+	if body.Text == "" {
+		return nil, nil, httpx.BadRequest("invalid_input", "text is required")
+	}
+	if len([]rune(body.Text)) > a.Config.TTSMaxChars {
+		return nil, nil, httpx.BadRequest("too_long", "text is limited to %d characters", a.Config.TTSMaxChars)
+	}
+	voices, def := a.voices(r.Context())
+	body.Voice = strings.TrimSpace(body.Voice)
+	if body.Voice == "" {
+		body.Voice = def
+	} else {
+		ok := false
+		for _, v := range voices {
+			if v.ID == body.Voice {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return nil, nil, httpx.BadRequest("unknown_voice", "unknown voice %q", body.Voice)
+		}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+	defer cancel()
+	data, err := a.TTS.Synthesize(ctx, body.Text, body.Voice)
+	if err != nil {
+		return nil, nil, httpx.BadGateway("tts_failed", "%s", err.Error())
+	}
+	return &body, data, nil
+}
+
+// POST /clips/tts  {"name": "...", "text": "...", "voice": "..."}  saves a clip
 func (a *api) ttsClip(w http.ResponseWriter, r *http.Request) error {
 	if err := a.requireClips(); err != nil {
 		return err
 	}
-	if !a.TTS.Enabled() {
-		return httpx.NewError(http.StatusServiceUnavailable, "tts_unavailable", "text-to-speech is not configured on this server")
-	}
-	u := auth.MustUser(r)
-	var body struct {
-		Name string `json:"name"`
-		Text string `json:"text"`
-	}
-	if err := httpx.Decode(r, &body, false); err != nil {
+	if err := a.checkClipCap(r.Context()); err != nil {
 		return err
 	}
-	body.Text = strings.TrimSpace(body.Text)
-	if body.Text == "" {
-		return httpx.BadRequest("invalid_input", "text is required")
-	}
-	if len(body.Text) > tts.MaxChars {
-		return httpx.BadRequest("too_long", "text is limited to %d characters", tts.MaxChars)
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
-	defer cancel()
-	data, err := a.TTS.Synthesize(ctx, body.Text)
+	u := auth.MustUser(r)
+	body, data, err := a.synthesize(r)
 	if err != nil {
-		return httpx.BadGateway("tts_failed", "%s", err.Error())
+		return err
 	}
 	name := strings.TrimSpace(body.Name)
 	if name == "" {
 		name = body.Text
-		if len(name) > 40 {
-			name = name[:40] + "…"
+		if n := []rune(name); len(n) > 40 {
+			name = string(n[:40]) + "…"
 		}
 	}
 	c := &clips.Clip{ID: uuid.NewString(), Name: name, Kind: clips.KindTTS, Mime: "audio/wav", Size: len(data), DurationSeconds: tts.WAVDuration(data),
-		Text: body.Text, CreatedByID: u.ID, CreatedByName: u.Name, CreatedAt: time.Now()}
+		Text: body.Text, Voice: body.Voice, CreatedByID: u.ID, CreatedByName: u.Name, CreatedAt: time.Now()}
 	if err := a.Clips.Insert(r.Context(), c, data); err != nil {
 		return err
 	}
 	httpx.JSON(w, http.StatusCreated, c)
+	return nil
+}
+
+// POST /clips/tts/preview  {"text": "...", "voice": "..."}  returns audio without saving
+func (a *api) ttsPreview(w http.ResponseWriter, r *http.Request) error {
+	_, data, err := a.synthesize(r)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", "audio/wav")
+	w.Header().Set("Content-Length", strconv.Itoa(len(data)))
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(data)
+	return nil
+}
+
+// PUT /settings/tts  {"voice": "..."}  (admins) — the voice used when a request does not pick one.
+func (a *api) setDefaultVoice(w http.ResponseWriter, r *http.Request) error {
+	if a.Settings == nil {
+		return httpx.NewError(http.StatusServiceUnavailable, "settings_unavailable", "settings are not available")
+	}
+	var body struct {
+		Voice string `json:"voice"`
+	}
+	if err := httpx.Decode(r, &body, false); err != nil {
+		return err
+	}
+	voices, _ := a.voices(r.Context())
+	ok := false
+	for _, v := range voices {
+		if v.ID == body.Voice {
+			ok = true
+			break
+		}
+	}
+	if !ok {
+		return httpx.BadRequest("unknown_voice", "unknown voice %q", body.Voice)
+	}
+	if err := a.Settings.Set(r.Context(), voiceKey, []byte(strconv.Quote(body.Voice))); err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, map[string]any{"defaultVoice": body.Voice})
 	return nil
 }
 

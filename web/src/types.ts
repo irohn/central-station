@@ -145,16 +145,29 @@ export interface Clip {
   size: number;
   durationSeconds?: number;
   text?: string;
+  voice?: string;
   createdById?: string;
   createdByName?: string;
   createdAt: string;
   builtin: boolean;
 }
 
+export interface Voice {
+  id: string;
+  label: string;
+  language: string;
+  region?: string;
+  quality?: string;
+}
+
 export interface ClipsResponse {
   clips: Clip[];
   defaultChimeId: string;
   ttsAvailable: boolean;
+  voices: Voice[];
+  defaultVoice: string;
+  savedCount: number;
+  maxSaved: number;
   maxDurationSec: number;
   maxBytes: number;
   maxLoops: number;

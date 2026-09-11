@@ -92,6 +92,8 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("GET /clips", a.perm(rbac.BroadcastSend, a.listClips))
 	mux.Handle("POST /clips", a.perm(rbac.BroadcastSend, a.uploadClip))
 	mux.Handle("POST /clips/tts", a.perm(rbac.BroadcastSend, a.ttsClip))
+	mux.Handle("POST /clips/tts/preview", a.perm(rbac.BroadcastSend, a.ttsPreview))
+	mux.Handle("PUT /settings/tts", a.perm(rbac.SettingsManage, a.setDefaultVoice))
 	mux.Handle("GET /clips/{id}/audio", auth.RequireAuth(httpx.HandlerFunc(a.clipAudio)))
 	mux.Handle("PATCH /clips/{id}", a.perm(rbac.BroadcastSend, a.renameClip))
 	mux.Handle("DELETE /clips/{id}", a.perm(rbac.BroadcastSend, a.deleteClip))

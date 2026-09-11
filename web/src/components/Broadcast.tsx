@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError } from "../api";
-import type { Clip, ClipsResponse, PlayerStatus, User } from "../types";
+import type { Clip, ClipsResponse, PlayerStatus, User, Voice } from "../types";
 import { Megaphone, Mic, Play, Square, Trash } from "./Icons";
 
 type Source = "record" | "type" | "saved";
@@ -54,6 +54,9 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
   // TTS state
   const [text, setText] = useState("");
   const [ttsName, setTtsName] = useState("");
+  const [voice, setVoice] = useState(""); // "" = default
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const previewAudio = useRef<HTMLAudioElement>(null);
 
   const load = () => api<ClipsResponse>("GET", "/clips").then(setInfo).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   useEffect(() => { load(); }, []);
@@ -65,6 +68,25 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
   const defaultChime = chimes.find((c) => c.id === info?.defaultChimeId);
   const maxSec = info?.maxDurationSec ?? 60;
   const canRecord = typeof MediaRecorder !== "undefined" && !!navigator.mediaDevices?.getUserMedia;
+  // Default first, then US English, then the rest, each group by label.
+  const voices = [...(info?.voices ?? [])].sort((a, b) => {
+    const rank = (v: Voice) => (v.id === info?.defaultVoice ? 0 : v.id.startsWith("en_US") ? 1 : 2);
+    return rank(a) - rank(b) || a.label.localeCompare(b.label);
+  });
+  const defaultVoice = voices.find((v) => v.id === info?.defaultVoice);
+  const atCap = !!info && info.savedCount >= info.maxSaved;
+
+  // Synthesise without saving and play it back (used by the Type tab and the admin voice list).
+  async function previewVoice(t: string, v: string) {
+    setBusy("preview"); setError(null);
+    try {
+      const res = await fetch("/api/v1/clips/tts/preview", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: t, voice: v }) });
+      if (!res.ok) { const d = await res.json().catch(() => null); throw new ApiError(res.status, d?.error?.code ?? "http_error", d?.error?.message ?? `HTTP ${res.status}`); }
+      const url = URL.createObjectURL(await res.blob());
+      setPreviewUrl((old) => { if (old) URL.revokeObjectURL(old); return url; });
+      window.setTimeout(() => previewAudio.current?.play().catch(() => {}), 50);
+    } catch (e) { fail(e); } finally { setBusy(null); }
+  }
 
   function fail(e: unknown) { setError(e instanceof ApiError ? e.message : e instanceof Error ? e.message : String(e)); }
 
@@ -127,7 +149,7 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
   async function createTTS() {
     setBusy("tts"); setError(null); setOk(null);
     try {
-      const c = await api<Clip>("POST", "/clips/tts", { name: ttsName.trim(), text: text.trim() });
+      const c = await api<Clip>("POST", "/clips/tts", { name: ttsName.trim(), text: text.trim(), voice });
       await load();
       setSelected(c);
       setText(""); setTtsName("");
@@ -176,8 +198,10 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
       <section className="card">
         <div className="row space-between wrap">
           <h2>Send an announcement</h2>
-          <span className={`muted small`}>{player.online ? "Player online" : "No player connected"}</span>
+          <span className="muted small">{player.online ? "Player online" : "No player connected"}{info ? ` · ${info.savedCount}/${info.maxSaved} clips saved` : ""}</span>
         </div>
+        {atCap && <p className="warn small">The limit of {info?.maxSaved} saved clips is reached. Delete one from the Saved tab before recording or typing a new one.</p>}
+        <audio ref={previewAudio} src={previewUrl ?? undefined} hidden />
         {player.broadcast && (
           <p className="ok small">Playing now: "{player.broadcast.clipName}" by {player.broadcast.byName}{player.broadcastsQueued > 0 ? ` · ${player.broadcastsQueued} waiting` : ""}</p>
         )}
@@ -196,7 +220,7 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
               <>
                 <div className="rec-row">
                   {!recording ? (
-                    <button className="btn primary with-icon rec-btn" type="button" onClick={startRecording} disabled={busy !== null}><Mic /> {blob ? "Record again" : "Start recording"}</button>
+                    <button className="btn primary with-icon rec-btn" type="button" onClick={startRecording} disabled={busy !== null || atCap}><Mic /> {blob ? "Record again" : "Start recording"}</button>
                   ) : (
                     <button className="btn danger with-icon rec-btn recording" type="button" onClick={stopRecording}><Square /> Stop · {elapsed.toFixed(0)}s</button>
                   )}
@@ -226,9 +250,22 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
               onChange={(e) => setText(e.target.value)}
             />
             <div className="row wrap">
-              <input placeholder="Name (optional)" value={ttsName} onChange={(e) => setTtsName(e.target.value)} />
-              <button className="btn" type="button" disabled={!text.trim() || busy !== null} onClick={createTTS}>{busy === "tts" ? "Generating…" : "Generate"}</button>
+              <label className="field-inline">
+                <span className="muted small">Voice</span>
+                <select value={voice} onChange={(e) => setVoice(e.target.value)}>
+                  <option value="">Default{defaultVoice ? ` (${defaultVoice.label})` : ""}</option>
+                  {voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                </select>
+              </label>
+              <button className="btn with-icon" type="button" disabled={!text.trim() || busy !== null} onClick={() => previewVoice(text.trim(), voice)}>
+                <Play width={16} height={16} /> {busy === "preview" ? "Generating…" : "Listen"}
+              </button>
             </div>
+            <div className="row wrap">
+              <input placeholder="Name (optional)" value={ttsName} onChange={(e) => setTtsName(e.target.value)} />
+              <button className="btn" type="button" disabled={!text.trim() || busy !== null || atCap} onClick={createTTS}>{busy === "tts" ? "Generating…" : "Save clip"}</button>
+            </div>
+            <p className="muted small">{text.length}/{info?.maxTextChars ?? 600} characters</p>
           </div>
         )}
 
@@ -240,7 +277,7 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
                   <li key={c.id} className={`clip-row${selected?.id === c.id ? " selected" : ""}`}>
                     <button className="clip-select" type="button" onClick={() => setSelected(c)} aria-pressed={selected?.id === c.id}>
                       <span className="strong ellipsis">{c.name}</span>
-                      <span className="muted small">{c.kind === "tts" ? "typed" : "recording"} · {fmtDur(c.durationSeconds)} · {c.createdByName}</span>
+                      <span className="muted small">{c.kind === "tts" ? `typed${c.voice ? ` · ${voices.find((v) => v.id === c.voice)?.label ?? c.voice}` : ""}` : "recording"} · {fmtDur(c.durationSeconds)} · {c.createdByName}</span>
                     </button>
                     <PreviewButton clipId={c.id} />
                     <button className="btn icon" type="button" title="Rename" onClick={() => rename(c)}>✎</button>
@@ -289,6 +326,27 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
         {error && <p className="error">{error}</p>}
         {ok && <p className="ok small">{ok}</p>}
       </section>
+
+      {isAdmin && info?.ttsAvailable && voices.length > 0 && (
+        <section className="card">
+          <h2>Voices</h2>
+          <p className="muted small">The default voice is used for typed announcements that do not pick another one. Listen plays a short sample.</p>
+          <ul className="clip-list">
+            {voices.map((v) => (
+              <li key={v.id} className="clip-row">
+                <label className="clip-select radio">
+                  <input type="radio" name="default-voice" checked={info?.defaultVoice === v.id} onChange={async () => { try { await api("PUT", "/settings/tts", { voice: v.id }); await load(); } catch (e) { fail(e); } }} />
+                  <span className="strong">{v.label}</span>
+                  <span className="muted small">{v.id}</span>
+                </label>
+                <button className="btn icon" type="button" title="Listen" aria-label={`Listen to ${v.label}`} disabled={busy !== null} onClick={() => previewVoice("Hello everyone, this is the Central Station announcement voice.", v.id)}>
+                  <Play width={16} height={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {isAdmin && (
         <section className="card">

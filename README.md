@@ -199,8 +199,18 @@ API: `GET/POST /clips`, `POST /clips/tts`, `GET /clips/{id}/audio`,
 `GET /broadcasts`.
 
 The `tts` image (`tts/`) wraps [Piper](https://github.com/OHF-Voice/piper1-gpl)
-with the `en_US-lessac-medium` voice; set `TTS_URL` on the API to enable typed
-announcements. Because two mpv processes share the sound card, the player must
+with six bundled voices (US and British English, female and male; the default
+is `en_US-hfc_female-medium`, a natural American voice). `GET /voices` on the
+service lists them; admins choose the default (`PUT /settings/tts`) and every
+typed announcement can pick one. Models load on first use and only the two most
+recently used stay in memory. Set `TTS_URL` on the API to enable typed
+announcements; `POST /clips/tts/preview` synthesises without saving.
+
+Storage is bounded: at most `CLIPS_MAX_SAVED` user clips (default 50, bundled
+chimes excluded), each at most `CLIPS_MAX_BYTES` (5 MB) and
+`CLIPS_MAX_DURATION_SECONDS` (60), typed text at most `TTS_MAX_CHARS` (600).
+Past the count the API refuses new clips (`409 clip_limit`) rather than deleting
+old ones, so a clip an alert depends on can never vanish silently. Because two mpv processes share the sound card, the player must
 use a mixing ALSA device (`MPV_AUDIO_DEVICE=alsa/default:CARD=<name>`, i.e. dmix)
 rather than `plughw`, or PulseAudio.
 

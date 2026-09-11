@@ -13,10 +13,46 @@ import (
 	"time"
 )
 
-// MaxChars bounds announcement text.
+// MaxChars is the default bound on announcement text (config overrides it).
 const MaxChars = 600
 
 var ErrDisabled = errors.New("text-to-speech is not configured")
+
+// Voice describes a synthesiser voice offered by the service.
+type Voice struct {
+	ID       string `json:"id"`
+	Label    string `json:"label"`
+	Language string `json:"language"`
+	Region   string `json:"region,omitempty"`
+	Quality  string `json:"quality,omitempty"`
+}
+
+// Voices lists the service's voices and its default.
+func (c *Client) Voices(ctx context.Context) ([]Voice, string, error) {
+	if !c.Enabled() {
+		return nil, "", ErrDisabled
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.URL+"/voices", nil)
+	if err != nil {
+		return nil, "", err
+	}
+	res, err := c.HTTP.Do(req)
+	if err != nil {
+		return nil, "", fmt.Errorf("tts service: %w", err)
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return nil, "", fmt.Errorf("tts service returned HTTP %d", res.StatusCode)
+	}
+	var body struct {
+		Voices  []Voice `json:"voices"`
+		Default string  `json:"default"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&body); err != nil {
+		return nil, "", fmt.Errorf("tts service: bad voices response: %w", err)
+	}
+	return body.Voices, body.Default, nil
+}
 
 // Client talks to the TTS service.
 type Client struct {
@@ -32,12 +68,12 @@ func New(url string) *Client {
 // Enabled reports whether a service URL is configured.
 func (c *Client) Enabled() bool { return c != nil && c.URL != "" }
 
-// Synthesize returns WAV audio for text.
-func (c *Client) Synthesize(ctx context.Context, text string) ([]byte, error) {
+// Synthesize returns WAV audio for text in the given voice ("" = service default).
+func (c *Client) Synthesize(ctx context.Context, text, voice string) ([]byte, error) {
 	if !c.Enabled() {
 		return nil, ErrDisabled
 	}
-	body, _ := json.Marshal(map[string]string{"text": text})
+	body, _ := json.Marshal(map[string]string{"text": text, "voice": voice})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.URL+"/synthesize", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
