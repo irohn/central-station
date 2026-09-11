@@ -1,14 +1,16 @@
 # syntax=docker/dockerfile:1.7
 # Headless player: Go agent + mpv + yt-dlp.
 
-FROM golang:1.26-alpine AS build
+FROM --platform=$BUILDPLATFORM golang:1.26-alpine AS build
+ARG TARGETOS TARGETARCH VERSION=dev
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
 RUN --mount=type=cache,target=/go/pkg/mod \
     --mount=type=cache,target=/root/.cache/go-build \
-    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/player ./cmd/player
+    CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath \
+      -ldflags="-s -w -X central-station/internal/playerd.Version=$VERSION" -o /out/player ./cmd/player
 
 FROM debian:trixie-slim
 RUN apt-get update \

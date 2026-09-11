@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22-alpine AS build
+# The bundle is architecture independent: build it natively, ship it in a per-arch nginx.
+FROM --platform=$BUILDPLATFORM node:22-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci

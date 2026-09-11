@@ -27,6 +27,9 @@ import (
 	"central-station/internal/store"
 )
 
+// version is set at build time (-ldflags "-X main.version=...").
+var version = "dev"
+
 func main() {
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
@@ -161,7 +164,7 @@ func run() error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		logger.Info("api listening", "addr", cfg.Addr, "env", cfg.Env, "baseUrl", cfg.BaseURL, "frontendUrl", cfg.FrontendURL,
+		logger.Info("api listening", "version", version, "addr", cfg.Addr, "env", cfg.Env, "baseUrl", cfg.BaseURL, "frontendUrl", cfg.FrontendURL,
 			"googleSSO", cfg.GoogleConfigured(), "devMode", cfg.AuthDevMode, "defaultProvider", registry.DefaultID())
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err

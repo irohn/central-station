@@ -166,6 +166,22 @@ browsers. Both are JSON, one object per message.
 A second player connection replaces the first. `GET /api/v1/player` returns the
 current status for the UI.
 
+### Releases and images
+
+`.github/workflows/release.yml` runs on every push to `master`: it tests, builds
+`central-station-api`, `-web` and `-player` for `linux/amd64` and `linux/arm64`,
+pushes them to GitHub Container Registry, and only then tags the commit.
+
+- Versions are semver git tags (`v0.0.1`, `v0.0.2`, ...). Each push bumps the
+  patch version; put `[minor]` or `[major]` in the commit message, or run the
+  workflow manually and pick the bump, to bump the other parts.
+- Images: `ghcr.io/<owner>/central-station-<name>:<version>`, also tagged
+  `<major>.<minor>`, `<major>` and `latest`. The player reports the version in its
+  hello message and the API logs it on startup.
+- Pulling from a private package needs a classic personal access token with
+  `read:packages` (`docker login ghcr.io -u <user>`; in Kubernetes a
+  `docker-registry` pull secret).
+
 ### Default playlist
 
 When the queue is empty the player falls back to a configurable YouTube playlist

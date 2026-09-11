@@ -1,0 +1,180 @@
+# Release: test, build multi-arch images, push them to GHCR, then tag the commit.
+#
+# Every push to master produces a new patch version (v0.0.1, v0.0.2, ...). Put
+# "[minor]" or "[major]" in the commit message, or run the workflow manually with
+# a bump choice, to bump those parts instead. Images are pushed BEFORE the git
+# tag is created, so a failed build never leaves a tag without images.
+#
+# Image names:  ghcr.io/<owner>/central-station-{api,web,player}:<version>
+# Extra tags:   <major>.<minor>, <major>, latest
+name: Release
+
+on:
+  push:
+    branches: [master]
+    paths-ignore:
+      - "**.md"
+      - "deploy/**"
+      - ".env.example"
+      - "docker-compose*.yml"
+      - "scripts/**"
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version part to bump
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+
+# One release at a time so version numbers never race.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write   # push the version tag + create the release
+  packages: write   # push images to GHCR
+
+env:
+  REGISTRY: ghcr.io
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go test -count=1 ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci --no-audit --no-fund
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+
+  version:
+    name: Next version
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      version: ${{ steps.next.outputs.version }}
+      existing: ${{ steps.next.outputs.existing }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: next
+        env:
+          BUMP_INPUT: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+          # Re-running on a commit that is already tagged reuses that version.
+          if existing=$(git tag --points-at HEAD | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1) && [ -n "$existing" ]; then
+            echo "HEAD is already tagged $existing; reusing it"
+            echo "version=${existing#v}" >> "$GITHUB_OUTPUT"
+            echo "existing=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          bump="${BUMP_INPUT:-}"
+          if [ -z "$bump" ]; then
+            msg=$(git log -1 --pretty=%B)
+            case "$msg" in
+              *"[major]"*) bump="major" ;;
+              *"[minor]"*) bump="minor" ;;
+              *)           bump="patch" ;;
+            esac
+          fi
+          latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -1)
+          if [ -z "$latest" ]; then
+            next=0.0.1
+          else
+            IFS=. read -r major minor patch <<<"${latest#v}"
+            case "$bump" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              *)     patch=$((patch + 1)) ;;
+            esac
+            next="$major.$minor.$patch"
+          fi
+          echo "latest=${latest:-none} bump=$bump next=$next"
+          echo "version=$next" >> "$GITHUB_OUTPUT"
+          echo "existing=false" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.image }}
+    runs-on: ubuntu-latest
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: api
+            context: .
+            dockerfile: Dockerfile
+          - image: web
+            context: ./web
+            dockerfile: web/Dockerfile
+          - image: player
+            context: .
+            dockerfile: Dockerfile.player
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/central-station-${{ matrix.image }}
+          tags: |
+            type=semver,pattern={{version}},value=v${{ needs.version.outputs.version }}
+            type=semver,pattern={{major}}.{{minor}},value=v${{ needs.version.outputs.version }}
+            type=semver,pattern={{major}},value=v${{ needs.version.outputs.version }}
+            type=raw,value=latest
+          labels: |
+            org.opencontainers.image.title=central-station-${{ matrix.image }}
+            org.opencontainers.image.version=${{ needs.version.outputs.version }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          provenance: false
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            VERSION=${{ needs.version.outputs.version }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+  tag:
+    name: Tag v${{ needs.version.outputs.version }}
+    runs-on: ubuntu-latest
+    needs: [version, build]
+    if: needs.version.outputs.existing == 'false'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - env:
+          VERSION: ${{ needs.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v$VERSION" -m "Release v$VERSION"
+          git push origin "v$VERSION"
+          gh release create "v$VERSION" --title "v$VERSION" --generate-notes --notes "Images: \`ghcr.io/${{ github.repository_owner }}/central-station-{api,web,player}:$VERSION\` (linux/amd64, linux/arm64)"
