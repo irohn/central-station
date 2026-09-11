@@ -19,3 +19,7 @@
 web/node_modules/
 web/dist/
 web/*.tsbuildinfo
+
+# Editor undo files and local scratch
+*.un~
+t.json
