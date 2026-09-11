@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"central-station/internal/auth"
+	"central-station/internal/clips"
 	"central-station/internal/config"
 	"central-station/internal/fallback"
 	"central-station/internal/player"
@@ -19,6 +20,7 @@ import (
 	"central-station/internal/queue"
 	"central-station/internal/settings"
 	"central-station/internal/store"
+	"central-station/internal/tts"
 )
 
 // fakeProvider stands in for YouTube so tests never hit the network.
@@ -86,12 +88,19 @@ func newTestAPI(t *testing.T) *testAPI {
 	}
 	fb.OnChange = q.Notify
 	q.SetFallback(fb)
+	cs := clips.NewMemory()
+	if err := clips.EnsureBuiltins(context.Background(), cs); err != nil {
+		t.Fatal(err)
+	}
 	h := Handler(Deps{
 		Config:    cfg,
 		Users:     store.NewMemory(),
 		Queue:     q,
 		Hub:       newTestHub(q),
 		Fallback:  fb,
+		Clips:     cs,
+		TTS:       tts.New(""),
+		Settings:  settings.NewMemory(),
 		Providers: reg,
 		Sessions:  auth.NewSessions(cfg.SessionSecret, time.Hour, false),
 	})

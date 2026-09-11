@@ -211,6 +211,34 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .volume-bar { flex: 1; margin: 0; }
 .volume-value { width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
 
+/* Broadcast */
+.broadcast-banner { display: flex; align-items: center; gap: 0.5rem; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text); }
+.tabs.seg { margin: 0.5rem 0 0.75rem; }
+.source-pane { margin-bottom: 0.75rem; }
+.rec-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.rec-btn { min-height: 44px; }
+.rec-btn.recording { background: color-mix(in srgb, var(--danger) 14%, transparent); border-color: var(--danger); color: var(--danger); animation: pulse 1.2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.6; } }
+.rec-review { margin-top: 0.75rem; display: flex; flex-direction: column; gap: 0.5rem; }
+.rec-audio { width: 100%; }
+textarea { width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 0.55rem 0.7rem; font: inherit; font-size: 16px; resize: vertical; margin-bottom: 0.5rem; }
+textarea:focus { outline: none; border-color: var(--accent); }
+.clip-list { list-style: none; margin: 0; padding: 0; }
+.clip-row { display: flex; align-items: center; gap: 0.5rem; padding: 0.4rem 0; border-top: 1px solid var(--border); }
+.clip-row:first-child { border-top: 0; }
+.clip-select { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: flex-start; gap: 0.1rem; background: none; border: 0; padding: 0.35rem 0.5rem; border-radius: 8px; font: inherit; color: var(--text); text-align: left; cursor: pointer; }
+.clip-select.radio { flex-direction: row; align-items: center; gap: 0.6rem; }
+.clip-select:hover { background: var(--panel-2); }
+.clip-row.selected .clip-select { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.send-box { border-top: 1px solid var(--border); margin-top: 0.75rem; padding-top: 0.75rem; }
+.send-selected { display: flex; align-items: center; gap: 0.6rem; margin-bottom: 0.6rem; }
+.send-selected > svg { flex: 0 0 auto; }
+.send-options { gap: 0.75rem; }
+.field-inline { display: flex; align-items: center; gap: 0.4rem; }
+.field-inline select { flex: none; }
+.send-btn { margin-left: auto; min-height: 44px; }
+.upload-btn { display: inline-block; margin-top: 0.5rem; cursor: pointer; }
+
 /* Playlists card */
 .playlist-row.is-playing .title { color: var(--accent); }
 .shuffle-toggle { color: var(--muted); }
@@ -255,6 +283,7 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
   .menu::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--border); margin: 0.5rem auto 0; }
   .menu-item { min-height: 48px; }
 
+  .send-btn { margin-left: 0; width: 100%; text-align: center; justify-content: center; }
   .queue-head h2 { order: 0; }
   .queued-count { order: 1; }
   .add-inline { order: 2; flex-basis: 100%; }

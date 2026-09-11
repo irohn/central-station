@@ -32,6 +32,7 @@ services:
       BASE_URL: ${BASE_URL:-http://localhost:3000}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       DATABASE_URL: postgres://${POSTGRES_USER:-central}:${POSTGRES_PASSWORD:-central}@db:5432/${POSTGRES_DB:-central}?sslmode=disable
+      TTS_URL: http://tts:5000
     depends_on:
       db:
         condition: service_healthy
@@ -49,6 +50,13 @@ services:
     depends_on: [api]
     restart: unless-stopped
     networks: [central]
+
+  tts:
+    build:
+      context: ./tts
+    image: central-station-tts:latest
+    restart: unless-stopped
+    networks: [central]   # internal only
 
   player:
     build:

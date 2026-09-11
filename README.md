@@ -182,6 +182,28 @@ pushes them to GitHub Container Registry, and only then tags the commit.
   `read:packages` (`docker login ghcr.io -u <user>`; in Kubernetes a
   `docker-registry` pull secret).
 
+### Broadcasts (announcements)
+
+Managers (`broadcast:send`) can interrupt the music with an announcement from
+the gear menu → Broadcast: record one in the browser (up to 60 s), type one
+(spoken by the `tts` service, English voices), or reuse a saved clip, then
+choose how many times it repeats (1–10) and which chime precedes it. The player
+downloads the audio, ducks the music to 15%, plays the chime and the clip in a
+second mpv process, and restores the volume; announcements sent meanwhile wait
+in line. Everyone sees a banner while one plays.
+
+Clips (recordings, TTS output, chimes) live in the `clips` table. Three chimes
+are bundled; admins can upload more and pick the default (`PUT /settings/chime`).
+API: `GET/POST /clips`, `POST /clips/tts`, `GET /clips/{id}/audio`,
+`PATCH|DELETE /clips/{id}`, `POST /broadcasts {"clipId","loops","chimeId"}`,
+`GET /broadcasts`.
+
+The `tts` image (`tts/`) wraps [Piper](https://github.com/OHF-Voice/piper1-gpl)
+with the `en_US-lessac-medium` voice; set `TTS_URL` on the API to enable typed
+announcements. Because two mpv processes share the sound card, the player must
+use a mixing ALSA device (`MPV_AUDIO_DEVICE=alsa/default:CARD=<name>`, i.e. dmix)
+rather than `plughw`, or PulseAudio.
+
 ### Queued playlists
 
 Collaborators can paste a whole playlist (`youtube.com/playlist?list=…`,

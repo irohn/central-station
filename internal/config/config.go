@@ -52,6 +52,9 @@ type Config struct {
 	FallbackPlaylistURL string
 	FallbackShuffle     bool
 
+	// TTSURL is the text-to-speech service (tts/ in this repo). Empty disables typed announcements.
+	TTSURL string
+
 	AuthDevMode bool
 
 	// PlayerToken authenticates the headless player container. Empty disables the player socket.
@@ -87,6 +90,7 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 		DefaultProvider:     strings.ToLower(envOr(getenv, "DEFAULT_PROVIDER", "youtube")),
 		YouTubeAPIKey:       getenv("YOUTUBE_API_KEY"),
 		FallbackPlaylistURL: strings.TrimSpace(getenv("FALLBACK_PLAYLIST_URL")),
+		TTSURL:              strings.TrimSpace(getenv("TTS_URL")),
 		PlayerToken:         strings.TrimSpace(getenv("PLAYER_TOKEN")),
 		DatabaseURL:         strings.TrimSpace(getenv("DATABASE_URL")),
 	}

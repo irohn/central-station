@@ -25,6 +25,27 @@ const volumeKey = "volume"
 // ErrBadVolume is returned for levels outside 0-100.
 var ErrBadVolume = errors.New("volume must be between 0 and 100")
 
+// ErrPlayerOffline is returned when an announcement cannot be delivered.
+var ErrPlayerOffline = errors.New("no player is connected")
+
+// DuckPercent is the music level (relative) while an announcement plays.
+const DuckPercent = 15
+
+// MaxBroadcastLoops caps how many times one clip repeats.
+const MaxBroadcastLoops = 10
+
+// Broadcast is a queued or playing announcement.
+type Broadcast struct {
+	ID       string
+	ClipID   string
+	ClipName string
+	ClipURL  string
+	ChimeURL string
+	Loops    int
+	ByID     string
+	ByName   string
+}
+
 const (
 	writeTimeout = 5 * time.Second
 	// playerReadTimeout: the player sends progress every 2s while playing and
@@ -46,6 +67,68 @@ type Hub struct {
 	status     Status
 	volume     int
 	spectators map[*websocket.Conn]struct{}
+	active     *Broadcast
+	activeAt   time.Time
+	pending    []*Broadcast
+}
+
+// SendBroadcast queues an announcement; it starts at once when none is
+// playing. Returns its position (0 = playing now).
+func (h *Hub) SendBroadcast(b *Broadcast) (int, error) {
+	if b.Loops < 1 {
+		b.Loops = 1
+	}
+	if b.Loops > MaxBroadcastLoops {
+		b.Loops = MaxBroadcastLoops
+	}
+	h.mu.Lock()
+	if h.player == nil {
+		h.mu.Unlock()
+		return 0, ErrPlayerOffline
+	}
+	h.pending = append(h.pending, b)
+	pos := len(h.pending) // place in the waiting line...
+	if h.active == nil {
+		pos = 0 // ...or starting right now
+	}
+	h.mu.Unlock()
+	h.startNextBroadcast()
+	return pos, nil
+}
+
+// startNextBroadcast sends the head of the queue to the player if idle.
+func (h *Hub) startNextBroadcast() {
+	h.mu.Lock()
+	if h.active != nil || len(h.pending) == 0 || h.player == nil {
+		h.mu.Unlock()
+		return
+	}
+	b := h.pending[0]
+	h.pending = h.pending[1:]
+	h.active = b
+	h.activeAt = time.Now()
+	h.status.Broadcast = &BroadcastStatus{ID: b.ID, ClipID: b.ClipID, ClipName: b.ClipName, Loops: b.Loops, ByID: b.ByID, ByName: b.ByName, StartedAt: h.activeAt}
+	h.status.BroadcastsQueued = len(h.pending)
+	p := h.player
+	h.mu.Unlock()
+	h.send(p, ServerMessage{Type: "broadcast", Broadcast: &BroadcastCommand{ID: b.ID, ClipURL: b.ClipURL, ChimeURL: b.ChimeURL, Loops: b.Loops, DuckPercent: DuckPercent}})
+	h.broadcastPlayer()
+}
+
+// Broadcasts returns the playing announcement (nil if none) and the queue.
+func (h *Hub) Broadcasts() (*BroadcastStatus, []BroadcastStatus) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var cur *BroadcastStatus
+	if h.status.Broadcast != nil {
+		c := *h.status.Broadcast
+		cur = &c
+	}
+	q := make([]BroadcastStatus, 0, len(h.pending))
+	for _, b := range h.pending {
+		q = append(q, BroadcastStatus{ID: b.ID, ClipID: b.ClipID, ClipName: b.ClipName, Loops: b.Loops, ByID: b.ByID, ByName: b.ByName})
+	}
+	return cur, q
 }
 
 // NewHub creates a hub bound to the queue. It installs itself as the queue's
@@ -179,12 +262,14 @@ func (h *Hub) ServePlayer(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info("player connected", "remote", r.RemoteAddr)
 	h.send(c, ServerMessage{Type: "state", State: h.desired()})
 	h.broadcastPlayer()
+	h.startNextBroadcast()
 
 	defer func() {
 		h.mu.Lock()
 		if h.player == c {
 			h.player = nil
-			h.status = Status{Online: false, LastSeenAt: time.Now(), LastError: h.status.LastError, Volume: h.volume}
+			h.active = nil // whatever was playing died with the connection; queued ones wait
+			h.status = Status{Online: false, LastSeenAt: time.Now(), LastError: h.status.LastError, Volume: h.volume, BroadcastsQueued: len(h.pending)}
 		}
 		h.mu.Unlock()
 		c.Close(websocket.StatusNormalClosure, "")
@@ -228,6 +313,22 @@ func (h *Hub) handlePlayerMessage(c *websocket.Conn, msg ClientMessage) {
 		st := h.status
 		h.mu.Unlock()
 		h.broadcast(Event{Type: "progress", Player: &st})
+		return
+	case "broadcast_ended":
+		if h.active == nil || h.active.ID != msg.BroadcastID {
+			h.mu.Unlock()
+			return
+		}
+		if msg.Reason == "error" {
+			h.logger.Warn("broadcast failed", "id", msg.BroadcastID, "err", msg.Error)
+			h.status.LastError = "announcement failed: " + msg.Error
+		}
+		h.active = nil
+		h.status.Broadcast = nil
+		h.status.BroadcastsQueued = len(h.pending)
+		h.mu.Unlock()
+		h.broadcastPlayer()
+		h.startNextBroadcast()
 		return
 	case "ended":
 		if msg.Reason == "error" {

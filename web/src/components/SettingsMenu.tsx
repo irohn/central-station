@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlayerStatus, User } from "../types";
 import type { Theme } from "../theme";
-import { Gear, ListMusic, LogOut, Moon, Radio, Sun, UsersIcon, X } from "./Icons";
+import { Gear, ListMusic, LogOut, Megaphone, Moon, Radio, Sun, UsersIcon, X } from "./Icons";
 
-export type MenuView = "fallback" | "users";
+export type MenuView = "fallback" | "users" | "broadcast";
 
 export function SettingsMenu({ user, player, connected, theme, onToggleTheme, onNavigate, onLogout }: {
   user: User;
@@ -17,6 +17,7 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
 }) {
   const [open, setOpen] = useState(false);
   const canManageFallback = user.permissions.includes("fallback:manage");
+  const canBroadcast = user.permissions.includes("broadcast:send");
   const isAdmin = user.permissions.includes("users:manage");
 
   useEffect(() => {
@@ -79,8 +80,13 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
               <Radio className="muted" />
             </div>
 
-            {(canManageFallback || isAdmin) && (
+            {(canManageFallback || isAdmin || canBroadcast) && (
               <div className="menu-section">
+                {canBroadcast && (
+                  <button className="menu-item" role="menuitem" onClick={() => go("broadcast")}>
+                    <Megaphone /> <span>Broadcast</span>
+                  </button>
+                )}
                 {canManageFallback && (
                   <button className="menu-item" role="menuitem" onClick={() => go("fallback")}>
                     <ListMusic /> <span>Default playlist</span>

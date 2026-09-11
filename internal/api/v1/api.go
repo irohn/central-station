@@ -14,6 +14,7 @@ import (
 	"net/http"
 
 	"central-station/internal/auth"
+	"central-station/internal/clips"
 	"central-station/internal/config"
 	"central-station/internal/fallback"
 	"central-station/internal/httpx"
@@ -21,7 +22,9 @@ import (
 	"central-station/internal/provider"
 	"central-station/internal/queue"
 	"central-station/internal/rbac"
+	"central-station/internal/settings"
 	"central-station/internal/store"
+	"central-station/internal/tts"
 )
 
 // Version is the value of the API-Version response header.
@@ -37,6 +40,9 @@ type Deps struct {
 	Google    *auth.Google // nil when Google SSO is not configured
 	Hub       *player.Hub
 	Fallback  *fallback.Manager // nil disables the default-playlist endpoints
+	Clips     clips.Store       // recordings, TTS output and chimes
+	TTS       *tts.Client       // nil or unconfigured disables typed announcements
+	Settings  settings.Store    // small admin settings (default chime)
 }
 
 type api struct{ Deps }
@@ -82,6 +88,17 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("PUT /settings/fallback", a.perm(rbac.FallbackManage, a.putFallback))
 	mux.Handle("POST /settings/fallback/refresh", a.perm(rbac.FallbackManage, a.refreshFallback))
 
+	// Clips + announcements
+	mux.Handle("GET /clips", a.perm(rbac.BroadcastSend, a.listClips))
+	mux.Handle("POST /clips", a.perm(rbac.BroadcastSend, a.uploadClip))
+	mux.Handle("POST /clips/tts", a.perm(rbac.BroadcastSend, a.ttsClip))
+	mux.Handle("GET /clips/{id}/audio", auth.RequireAuth(httpx.HandlerFunc(a.clipAudio)))
+	mux.Handle("PATCH /clips/{id}", a.perm(rbac.BroadcastSend, a.renameClip))
+	mux.Handle("DELETE /clips/{id}", a.perm(rbac.BroadcastSend, a.deleteClip))
+	mux.Handle("GET /broadcasts", auth.RequireAuth(httpx.HandlerFunc(a.getBroadcasts)))
+	mux.Handle("POST /broadcasts", a.perm(rbac.BroadcastSend, a.sendBroadcast))
+	mux.Handle("PUT /settings/chime", a.perm(rbac.SettingsManage, a.setDefaultChime))
+
 	// Player + live events
 	mux.Handle("GET /player", auth.RequireAuth(httpx.HandlerFunc(a.getPlayer)))
 	mux.Handle("GET /events/ws", auth.RequireAuth(httpx.HandlerFunc(a.eventsWS)))
@@ -104,6 +121,7 @@ func Handler(d Deps) http.Handler {
 	// so it is mounted outside the session middleware.
 	outer := http.NewServeMux()
 	outer.Handle("GET /player/ws", httpx.HandlerFunc(a.playerWS))
+	outer.Handle("GET /player/clips/{id}/audio", httpx.HandlerFunc(a.playerClipAudio))
 	outer.Handle("/", authn.Middleware(mux))
 	return versionHeader(outer)
 }

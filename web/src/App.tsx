@@ -10,13 +10,15 @@ import { FallbackSettings } from "./components/FallbackSettings";
 import { History } from "./components/History";
 import { Users } from "./components/Users";
 import { SettingsMenu } from "./components/SettingsMenu";
+import { Broadcast } from "./components/Broadcast";
+import { Megaphone } from "./components/Icons";
 import { ThemeToggle } from "./components/ThemeToggle";
 import { ChevronLeft } from "./components/Icons";
 import { useTheme } from "./theme";
 
-type View = "queue" | "history" | "users" | "fallback";
+type View = "queue" | "history" | "users" | "fallback" | "broadcast";
 
-const subpageTitles: Record<"users" | "fallback", string> = { users: "Users", fallback: "Default playlist" };
+const subpageTitles: Record<"users" | "fallback" | "broadcast", string> = { users: "Users", fallback: "Default playlist", broadcast: "Broadcast" };
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
@@ -51,10 +53,12 @@ export default function App() {
 
   const isAdmin = user.permissions.includes("users:manage");
   const canManageFallback = user.permissions.includes("fallback:manage");
+  const canBroadcast = user.permissions.includes("broadcast:send");
   // Fall back to the queue when the role cannot use the requested page (e.g. after a role change).
   const view: View =
-    (requestedView === "users" && !isAdmin) || (requestedView === "fallback" && !canManageFallback) ? "queue" : requestedView;
-  const subpage = view === "users" || view === "fallback";
+    (requestedView === "users" && !isAdmin) || (requestedView === "fallback" && !canManageFallback) || (requestedView === "broadcast" && !canBroadcast)
+      ? "queue" : requestedView;
+  const subpage = view === "users" || view === "fallback" || view === "broadcast";
 
   return (
     <div className="app">
@@ -81,6 +85,9 @@ export default function App() {
       </header>
 
       {!connected && <div className="banner warn-banner">Connection lost, reconnecting…</div>}
+      {player.broadcast && (
+        <div className="banner broadcast-banner"><Megaphone width={18} height={18} /> Announcement: <strong>{player.broadcast.clipName}</strong> · {player.broadcast.byName}{player.broadcast.loops > 1 ? ` · ${player.broadcast.loops}×` : ""}{player.broadcastsQueued > 0 ? ` · ${player.broadcastsQueued} more waiting` : ""}</div>
+      )}
 
       <main>
         {subpage && (
@@ -101,6 +108,7 @@ export default function App() {
         {view === "history" && <History version={queue?.updatedAt ?? ""} />}
         {view === "users" && isAdmin && <Users me={user} />}
         {view === "fallback" && canManageFallback && <FallbackSettings user={user} />}
+        {view === "broadcast" && canBroadcast && <Broadcast user={user} player={player} />}
       </main>
     </div>
   );

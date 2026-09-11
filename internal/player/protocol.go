@@ -30,20 +30,33 @@ type DesiredState struct {
 
 // ServerMessage is sent from the API to the player.
 type ServerMessage struct {
-	Type  string        `json:"type"` // "state"
-	State *DesiredState `json:"state,omitempty"`
+	Type      string            `json:"type"` // state | broadcast
+	State     *DesiredState     `json:"state,omitempty"`
+	Broadcast *BroadcastCommand `json:"broadcast,omitempty"`
+}
+
+// BroadcastCommand asks the player to play a clip over the music: an optional
+// chime, then the clip Loops times, while the music is ducked to DuckPercent
+// of its volume. URLs are API paths the player fetches with its token.
+type BroadcastCommand struct {
+	ID          string `json:"id"`
+	ClipURL     string `json:"clipUrl"`
+	ChimeURL    string `json:"chimeUrl,omitempty"`
+	Loops       int    `json:"loops"`
+	DuckPercent int    `json:"duckPercent"`
 }
 
 // ClientMessage is sent from the player to the API.
 type ClientMessage struct {
-	Type     string  `json:"type"` // hello | progress | ended
-	Name     string  `json:"name,omitempty"`
-	Version  string  `json:"version,omitempty"`
-	ItemID   string  `json:"itemId,omitempty"`
-	Position float64 `json:"positionSeconds,omitempty"`
-	Duration float64 `json:"durationSeconds,omitempty"`
-	Reason   string  `json:"reason,omitempty"` // eof | error
-	Error    string  `json:"error,omitempty"`
+	Type        string  `json:"type"` // hello | progress | ended | broadcast_ended
+	Name        string  `json:"name,omitempty"`
+	Version     string  `json:"version,omitempty"`
+	ItemID      string  `json:"itemId,omitempty"`
+	BroadcastID string  `json:"broadcastId,omitempty"`
+	Position    float64 `json:"positionSeconds,omitempty"`
+	Duration    float64 `json:"durationSeconds,omitempty"`
+	Reason      string  `json:"reason,omitempty"` // eof | error
+	Error       string  `json:"error,omitempty"`
 }
 
 // Status is what the API knows about the connected player.
@@ -59,6 +72,21 @@ type Status struct {
 	LastError   string    `json:"lastError,omitempty"`
 	// Volume is the level the player is asked to use (0-100).
 	Volume int `json:"volume"`
+	// Broadcast is the announcement playing now, if any.
+	Broadcast *BroadcastStatus `json:"broadcast,omitempty"`
+	// BroadcastsQueued counts announcements waiting behind it.
+	BroadcastsQueued int `json:"broadcastsQueued"`
+}
+
+// BroadcastStatus describes an announcement in flight.
+type BroadcastStatus struct {
+	ID        string    `json:"id"`
+	ClipID    string    `json:"clipId"`
+	ClipName  string    `json:"clipName"`
+	Loops     int       `json:"loops"`
+	ByID      string    `json:"byId"`
+	ByName    string    `json:"byName"`
+	StartedAt time.Time `json:"startedAt"`
 }
 
 // Event is pushed to browser clients (spectators).

@@ -37,8 +37,8 @@ func (a *api) getPlayer(w http.ResponseWriter, _ *http.Request) error {
 	return nil
 }
 
-// GET /player/ws  (player container; Bearer PLAYER_TOKEN)
-func (a *api) playerWS(w http.ResponseWriter, r *http.Request) error {
+// checkPlayerToken authenticates the player container (Bearer PLAYER_TOKEN).
+func (a *api) checkPlayerToken(r *http.Request) error {
 	if a.Config.PlayerToken == "" {
 		return httpx.NewError(http.StatusServiceUnavailable, "player_disabled", "PLAYER_TOKEN is not configured")
 	}
@@ -50,8 +50,24 @@ func (a *api) playerWS(w http.ResponseWriter, r *http.Request) error {
 	if subtle.ConstantTimeCompare([]byte(got), []byte(a.Config.PlayerToken)) != 1 {
 		return httpx.Unauthorized("invalid player token")
 	}
+	return nil
+}
+
+// GET /player/ws  (player container; Bearer PLAYER_TOKEN)
+func (a *api) playerWS(w http.ResponseWriter, r *http.Request) error {
+	if err := a.checkPlayerToken(r); err != nil {
+		return err
+	}
 	a.Hub.ServePlayer(w, r)
 	return nil
+}
+
+// GET /player/clips/{id}/audio  (player container fetches announcement audio)
+func (a *api) playerClipAudio(w http.ResponseWriter, r *http.Request) error {
+	if err := a.checkPlayerToken(r); err != nil {
+		return err
+	}
+	return a.serveClipAudio(w, r)
 }
 
 // GET /events/ws  (browser; session cookie or Bearer token)

@@ -5,7 +5,7 @@
 # a bump choice, to bump those parts instead. Images are pushed BEFORE the git
 # tag is created, so a failed build never leaves a tag without images.
 #
-# Image names:  ghcr.io/<owner>/central-station-{api,web,player}:<version>
+# Image names:  ghcr.io/<owner>/central-station-{api,web,player,tts}:<version>
 # Extra tags:   <major>.<minor>, <major>, latest
 name: Release
 
@@ -124,6 +124,9 @@ jobs:
           - image: player
             context: .
             dockerfile: Dockerfile.player
+          - image: tts
+            context: ./tts
+            dockerfile: tts/Dockerfile
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
@@ -176,4 +179,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git tag -a "v$VERSION" -m "Release v$VERSION"
           git push origin "v$VERSION"
-          gh release create "v$VERSION" --title "v$VERSION" --generate-notes --notes "Images: \`ghcr.io/${{ github.repository_owner }}/central-station-{api,web,player}:$VERSION\` (linux/amd64, linux/arm64)"
+          gh release create "v$VERSION" --title "v$VERSION" --generate-notes --notes "Images: \`ghcr.io/${{ github.repository_owner }}/central-station-{api,web,player,tts}:$VERSION\` (linux/amd64, linux/arm64)"

@@ -40,6 +40,7 @@ const (
 	// Manager.
 	QueueRemoveAny    Permission = "queue:remove_any"
 	PlaylistRemoveAny Permission = "playlist:remove_any" // skip or reshuffle anyone's queued playlist
+	BroadcastSend     Permission = "broadcast:send"      // record/synthesise clips and announce them over the music
 	QueueReorder      Permission = "queue:reorder"
 	PlaybackControl   Permission = "playback:control" // skip, pause, resume, override
 	FallbackManage    Permission = "fallback:manage"  // configure the default playlist
@@ -62,7 +63,7 @@ var roleLevel = map[Role]int{
 var AllPermissions = []Permission{
 	QueueRead, HistoryRead, TrackResolve,
 	QueueAdd, QueueRemoveOwn, PlaylistWrite, VolumeControl,
-	QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage, PlaylistRemoveAny,
+	QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage, PlaylistRemoveAny, BroadcastSend,
 	SettingsManage, UsersManage, IntegrationsManage,
 }
 
@@ -70,7 +71,7 @@ var AllPermissions = []Permission{
 var DefaultGrants = map[Role][]Permission{
 	RoleListener:     {QueueRead, HistoryRead, TrackResolve},
 	RoleCollaborator: {QueueAdd, QueueRemoveOwn, PlaylistWrite, VolumeControl},
-	RoleManager:      {QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage, PlaylistRemoveAny},
+	RoleManager:      {QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage, PlaylistRemoveAny, BroadcastSend},
 	RoleAdmin:        {SettingsManage, UsersManage, IntegrationsManage},
 }
 

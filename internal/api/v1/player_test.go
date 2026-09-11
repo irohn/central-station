@@ -46,6 +46,15 @@ func readServer(t *testing.T, c *websocket.Conn) player.ServerMessage {
 	return m
 }
 
+func writeClient(t *testing.T, c *websocket.Conn, m player.ClientMessage) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := wsjson.Write(ctx, c, m); err != nil {
+		t.Fatalf("write client message: %v", err)
+	}
+}
+
 func readEvent(t *testing.T, c *websocket.Conn) player.Event {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

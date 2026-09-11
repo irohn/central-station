@@ -3,7 +3,7 @@ export type Role = "listener" | "collaborator" | "manager" | "admin";
 export type Permission =
   | "queue:read" | "history:read" | "track:resolve"
   | "queue:add" | "queue:remove_own" | "playlist:write" | "volume:control"
-  | "queue:remove_any" | "queue:reorder" | "playback:control" | "fallback:manage" | "playlist:remove_any"
+  | "queue:remove_any" | "queue:reorder" | "playback:control" | "fallback:manage" | "playlist:remove_any" | "broadcast:send"
   | "settings:manage" | "users:manage" | "integrations:manage";
 
 export interface User {
@@ -120,6 +120,45 @@ export interface PlayerStatus {
   lastError?: string;
   /** Output level 0-100 requested from the player. */
   volume: number;
+  /** Announcement playing over the music right now. */
+  broadcast?: BroadcastStatus;
+  broadcastsQueued: number;
+}
+
+export interface BroadcastStatus {
+  id: string;
+  clipId: string;
+  clipName: string;
+  loops: number;
+  byId: string;
+  byName: string;
+  startedAt?: string;
+}
+
+export type ClipKind = "recording" | "tts" | "chime";
+
+export interface Clip {
+  id: string;
+  name: string;
+  kind: ClipKind;
+  mime: string;
+  size: number;
+  durationSeconds?: number;
+  text?: string;
+  createdById?: string;
+  createdByName?: string;
+  createdAt: string;
+  builtin: boolean;
+}
+
+export interface ClipsResponse {
+  clips: Clip[];
+  defaultChimeId: string;
+  ttsAvailable: boolean;
+  maxDurationSec: number;
+  maxBytes: number;
+  maxLoops: number;
+  maxTextChars: number;
 }
 
 export interface LiveEvent {

@@ -48,7 +48,7 @@ func main() {
 	defer mpv.Close()
 	logger.Info("mpv ready", "name", name, "api", apiURL, "args", mpvArgs)
 
-	agent := &playerd.Agent{APIURL: apiURL, Token: token, Name: name, Logger: logger, MPV: mpv, ProgressInterval: 2 * time.Second}
+	agent := &playerd.Agent{APIURL: apiURL, Token: token, Name: name, Logger: logger, MPV: mpv, ProgressInterval: 2 * time.Second, AudioArgs: mpvArgs}
 	if err := agent.Run(ctx); err != nil {
 		logger.Error("agent stopped", "err", err)
 		os.Exit(1)

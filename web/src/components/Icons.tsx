@@ -72,6 +72,21 @@ export const Volume = ({ level, ...p }: SVGProps<SVGSVGElement> & { level: numbe
 export const X = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="M18 6 6 18" /><path d="m6 6 12 12" /></svg>
 );
+export const Megaphone = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="m3 11 18-5v12L3 14v-3z" /><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6" /></svg>
+);
+export const Mic = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M12 19v3" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><rect x="9" y="2" width="6" height="13" rx="3" /></svg>
+);
+export const Play = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><polygon points="6 3 20 12 6 21 6 3" /></svg>
+);
+export const Square = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><rect width="18" height="18" x="3" y="3" rx="2" /></svg>
+);
+export const Trash = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /></svg>
+);
 export const ExternalLink = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}>
     <path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />

@@ -15,6 +15,7 @@ import (
 
 	v1 "central-station/internal/api/v1"
 	"central-station/internal/auth"
+	"central-station/internal/clips"
 	"central-station/internal/config"
 	"central-station/internal/db"
 	"central-station/internal/fallback"
@@ -26,6 +27,7 @@ import (
 	"central-station/internal/server"
 	"central-station/internal/settings"
 	"central-station/internal/store"
+	"central-station/internal/tts"
 )
 
 // version is set at build time (-ldflags "-X main.version=...").
@@ -88,6 +90,7 @@ func run() error {
 		users         store.UserStore
 		queueStore    queue.Store
 		settingsStore settings.Store
+		clipStore     clips.Store
 		ready         = func() bool { return true }
 	)
 	if cfg.DatabaseURL != "" {
@@ -102,6 +105,7 @@ func run() error {
 		users = store.NewPostgres(pool)
 		queueStore = queue.NewPostgresStore(pool)
 		settingsStore = settings.NewPostgres(pool)
+		clipStore = clips.NewPostgres(pool)
 		ready = func() bool {
 			pctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -112,7 +116,12 @@ func run() error {
 		users = store.NewMemory()
 		queueStore = queue.NewMemoryStore()
 		settingsStore = settings.NewMemory()
+		clipStore = clips.NewMemory()
 	}
+	if err := clips.EnsureBuiltins(ctx, clipStore); err != nil {
+		return fmt.Errorf("install bundled chimes: %w", err)
+	}
+	ttsClient := tts.New(cfg.TTSURL)
 
 	q, err := queue.New(ctx, queueStore)
 	if err != nil {
@@ -152,6 +161,9 @@ func run() error {
 		Queue:     q,
 		Hub:       hub,
 		Fallback:  fb,
+		Clips:     clipStore,
+		TTS:       ttsClient,
+		Settings:  settingsStore,
 		Providers: registry,
 		Sessions:  auth.NewSessions(cfg.SessionSecret, cfg.SessionTTL, cfg.CookieSecure),
 		Google:    google,
@@ -176,7 +188,7 @@ func run() error {
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("api listening", "version", version, "addr", cfg.Addr, "env", cfg.Env, "baseUrl", cfg.BaseURL, "frontendUrl", cfg.FrontendURL,
-			"googleSSO", cfg.GoogleConfigured(), "devMode", cfg.AuthDevMode, "defaultProvider", registry.DefaultID())
+			"googleSSO", cfg.GoogleConfigured(), "devMode", cfg.AuthDevMode, "defaultProvider", registry.DefaultID(), "tts", ttsClient.Enabled())
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
