@@ -166,6 +166,27 @@ browsers. Both are JSON, one object per message.
 A second player connection replaces the first. `GET /api/v1/player` returns the
 current status for the UI.
 
+### Default playlist
+
+When the queue is empty the player falls back to a configurable YouTube playlist
+so the office never goes silent. Tracks it plays are marked `source: "fallback"`
+in the queue state and history, and are never shown inside the users' queue; the
+UI shows the playlist and its next track in a separate card.
+
+- `FALLBACK_PLAYLIST_URL` / `FALLBACK_SHUFFLE` seed the setting the first time the
+  server starts with nothing configured. After that the value lives in the
+  `settings` table and is edited from the UI (gear menu → Default playlist) by
+  managers and admins (`fallback:manage`).
+- A user-queued track never interrupts the current fallback track; it plays
+  right after it. Changing or disabling the playlist skips a currently playing
+  fallback track.
+- The playlist is re-fetched in the background every 6 hours (and on demand with
+  the Refresh button) so newly added videos show up. With `YOUTUBE_API_KEY` set up
+  to 300 tracks are used; without a key the public playlist page is parsed, which
+  only exposes the first 100.
+- API: `GET /api/v1/settings/fallback`, `PUT /api/v1/settings/fallback`
+  `{"url","enabled","shuffle"}`, `POST /api/v1/settings/fallback/refresh`.
+
 ### Player container and audio
 
 `Dockerfile.player` builds a Debian image with mpv, the latest yt-dlp release, and the

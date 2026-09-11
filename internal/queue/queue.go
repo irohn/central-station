@@ -27,13 +27,44 @@ const (
 	StatusPaused  Status = "paused"  // current item is paused
 )
 
-// Item is a track queued by a user.
+// Item is a track queued by a user, or pulled from the default playlist.
 type Item struct {
 	ID          string          `json:"id"`
 	Track       *provider.Track `json:"track"`
 	AddedByID   string          `json:"addedById"`
 	AddedByName string          `json:"addedByName"`
 	AddedAt     time.Time       `json:"addedAt"`
+	// Source is empty for user-queued items and SourceFallback for tracks the
+	// default playlist supplied because the queue was empty.
+	Source string `json:"source,omitempty"`
+}
+
+// SourceFallback marks items that came from the default playlist.
+const SourceFallback = "fallback"
+
+// IsFallback reports whether the item came from the default playlist.
+func (it *Item) IsFallback() bool { return it != nil && it.Source == SourceFallback }
+
+// FallbackSource supplies tracks when the user queue runs dry (the office
+// "default playlist"). Implementations must be safe for concurrent use.
+type FallbackSource interface {
+	// Next returns the track to play now and a display name for where it came
+	// from (the playlist title), advancing the source. A nil track means
+	// nothing is available.
+	Next(ctx context.Context) (track *provider.Track, origin string)
+	// Peek describes the source and the track Next would return, without
+	// advancing. It is embedded in every State snapshot.
+	Peek() *FallbackState
+}
+
+// FallbackState is the default-playlist summary shown alongside the queue.
+type FallbackState struct {
+	Enabled       bool            `json:"enabled"`
+	PlaylistTitle string          `json:"playlistTitle,omitempty"`
+	PlaylistURL   string          `json:"playlistUrl,omitempty"`
+	TrackCount    int             `json:"trackCount"`
+	Shuffle       bool            `json:"shuffle"`
+	Next          *provider.Track `json:"next,omitempty"`
 }
 
 // EndReason explains why an item left the current slot.
@@ -62,6 +93,8 @@ type State struct {
 	StartedAt time.Time `json:"startedAt,omitzero"`
 	Items     []*Item   `json:"items"`
 	UpdatedAt time.Time `json:"updatedAt"`
+	// Fallback is nil when no default-playlist source is configured.
+	Fallback *FallbackState `json:"fallback,omitempty"`
 }
 
 var (
@@ -81,9 +114,34 @@ type Service struct {
 	status    Status
 	updatedAt time.Time
 	now       func() time.Time
+	fallback  FallbackSource
 
 	// OnChange, when set, is called (without the lock held) after every mutation.
 	OnChange func()
+}
+
+// SetFallback installs the default-playlist source. Call it before serving traffic.
+func (s *Service) SetFallback(f FallbackSource) {
+	s.mu.Lock()
+	s.fallback = f
+	s.mu.Unlock()
+}
+
+// Notify runs the OnChange hook so subscribers re-read the snapshot. Use it
+// when something embedded in the snapshot (the fallback source) changes
+// without a queue mutation.
+func (s *Service) Notify() { s.notify() }
+
+// Nudge starts playback from the fallback source when the player is idle and
+// the queue is empty. It is a no-op otherwise.
+func (s *Service) Nudge(ctx context.Context) error {
+	defer s.notify()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.current != nil || len(s.items) > 0 {
+		return nil
+	}
+	return s.transitionLocked(ctx, nil)
 }
 
 // New creates a queue backed by store and loads the persisted state.
@@ -115,7 +173,11 @@ func (s *Service) Snapshot() State {
 	defer s.mu.RUnlock()
 	items := make([]*Item, len(s.items))
 	copy(items, s.items)
-	return State{Status: s.status, Current: s.current, StartedAt: s.startedAt, Items: items, UpdatedAt: s.updatedAt}
+	st := State{Status: s.status, Current: s.current, StartedAt: s.startedAt, Items: items, UpdatedAt: s.updatedAt}
+	if s.fallback != nil {
+		st.Fallback = s.fallback.Peek()
+	}
+	return st
 }
 
 // Add appends a track. If nothing is current it becomes current and starts playing.
@@ -261,10 +323,14 @@ func (s *Service) Resume(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.current == nil {
-		if len(s.items) == 0 {
+		// Idle: start the next queued item, or fall back to the default playlist.
+		if err := s.transitionLocked(ctx, nil); err != nil {
+			return err
+		}
+		if s.current == nil {
 			return ErrNotPlaying
 		}
-		return s.transitionLocked(ctx, nil)
+		return nil
 	}
 	if err := s.store.SetPlayback(ctx, StatusPlaying, s.current, s.startedAt); err != nil {
 		return err
@@ -280,23 +346,32 @@ func (s *Service) History(ctx context.Context, limit int) ([]*HistoryEntry, erro
 }
 
 // transitionLocked records ended (if any) and promotes the head of the queue
-// into the current slot, persisting both atomically.
+// into the current slot, persisting both atomically. When the queue is empty
+// the fallback source (default playlist) is consulted instead.
 func (s *Service) transitionLocked(ctx context.Context, ended *HistoryEntry) error {
-	var next *Item
+	var next, current *Item
 	status := StatusIdle
 	var startedAt time.Time
-	if len(s.items) > 0 {
+	switch {
+	case len(s.items) > 0:
 		next = s.items[0]
+		current = next
+	case s.fallback != nil:
+		if t, origin := s.fallback.Next(ctx); t != nil {
+			current = &Item{ID: uuid.NewString(), Track: t, AddedByID: SourceFallback, AddedByName: origin, AddedAt: s.now(), Source: SourceFallback}
+		}
+	}
+	if current != nil {
 		status = StatusPlaying
 		startedAt = s.now()
 	}
-	if err := s.store.Transition(ctx, ended, next, status, next, startedAt); err != nil {
+	if err := s.store.Transition(ctx, ended, next, status, current, startedAt); err != nil {
 		return err
 	}
 	if next != nil {
 		s.items = s.items[1:]
 	}
-	s.current = next
+	s.current = current
 	s.startedAt = startedAt
 	s.status = status
 	s.touch()

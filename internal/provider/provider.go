@@ -242,3 +242,60 @@ func ParseInputURL(input string) (*url.URL, bool) {
 	}
 	return nil, false
 }
+
+// ---- Playlists ----
+
+// Playlist is a resolved collection of tracks (e.g. a YouTube playlist).
+type Playlist struct {
+	Provider string   `json:"provider"`
+	ID       string   `json:"id"`
+	URL      string   `json:"url"`
+	Title    string   `json:"title"`
+	Tracks   []*Track `json:"tracks"`
+}
+
+// PlaylistProvider is implemented by providers that can expand playlist URLs.
+type PlaylistProvider interface {
+	Provider
+	// PlaylistIDFromURL extracts the playlist ID from a URL that MatchURL
+	// accepted. ok is false when the URL does not reference a playlist.
+	PlaylistIDFromURL(u *url.URL) (id string, ok bool)
+	// ResolvePlaylist fetches the playlist title and its tracks.
+	ResolvePlaylist(ctx context.Context, id string) (*Playlist, error)
+}
+
+// ErrNotPlaylist: the URL belongs to the provider but does not reference a playlist.
+var ErrNotPlaylist = errors.New("not a playlist url")
+
+// PlaylistsUnsupportedError is returned when the URL's provider cannot expand playlists.
+type PlaylistsUnsupportedError struct{ ProviderID string }
+
+func (e *PlaylistsUnsupportedError) Error() string {
+	return fmt.Sprintf("provider %q does not support playlists", e.ProviderID)
+}
+
+// ResolvePlaylist expands a playlist URL into its tracks. The provider is
+// detected from the host like in Resolve; free-text input is rejected.
+func (r *Registry) ResolvePlaylist(ctx context.Context, input string) (*Playlist, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		return nil, ErrEmptyInput
+	}
+	u, ok := ParseInputURL(input)
+	if !ok {
+		return nil, fmt.Errorf("%w: %q is not a URL", ErrInvalidURL, input)
+	}
+	p := r.match(u)
+	if p == nil {
+		return nil, &UnsupportedProviderError{BaseURL: u.Scheme + "://" + u.Host}
+	}
+	pp, ok := p.(PlaylistProvider)
+	if !ok {
+		return nil, &PlaylistsUnsupportedError{ProviderID: p.ID()}
+	}
+	id, ok := pp.PlaylistIDFromURL(u)
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrNotPlaylist, u.String())
+	}
+	return pp.ResolvePlaylist(ctx, id)
+}

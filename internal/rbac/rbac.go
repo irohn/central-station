@@ -38,6 +38,7 @@ const (
 	QueueRemoveAny  Permission = "queue:remove_any"
 	QueueReorder    Permission = "queue:reorder"
 	PlaybackControl Permission = "playback:control" // skip, pause, resume, override
+	FallbackManage  Permission = "fallback:manage"  // configure the default playlist
 
 	// Admin.
 	SettingsManage     Permission = "settings:manage"
@@ -57,7 +58,7 @@ var roleLevel = map[Role]int{
 var grants = map[Role][]Permission{
 	RoleListener:     {QueueRead, HistoryRead, TrackResolve},
 	RoleCollaborator: {QueueAdd, QueueRemoveOwn, PlaylistWrite},
-	RoleManager:      {QueueRemoveAny, QueueReorder, PlaybackControl},
+	RoleManager:      {QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage},
 	RoleAdmin:        {SettingsManage, UsersManage, IntegrationsManage},
 }
 

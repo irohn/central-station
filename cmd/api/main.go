@@ -17,11 +17,13 @@ import (
 	"central-station/internal/auth"
 	"central-station/internal/config"
 	"central-station/internal/db"
+	"central-station/internal/fallback"
 	"central-station/internal/player"
 	"central-station/internal/provider"
 	"central-station/internal/provider/youtube"
 	"central-station/internal/queue"
 	"central-station/internal/server"
+	"central-station/internal/settings"
 	"central-station/internal/store"
 )
 
@@ -73,9 +75,10 @@ func run() error {
 	defer stop()
 
 	var (
-		users      store.UserStore
-		queueStore queue.Store
-		ready      = func() bool { return true }
+		users         store.UserStore
+		queueStore    queue.Store
+		settingsStore settings.Store
+		ready         = func() bool { return true }
 	)
 	if cfg.DatabaseURL != "" {
 		pool, err := db.Connect(ctx, cfg.DatabaseURL)
@@ -88,6 +91,7 @@ func run() error {
 		}
 		users = store.NewPostgres(pool)
 		queueStore = queue.NewPostgresStore(pool)
+		settingsStore = settings.NewPostgres(pool)
 		ready = func() bool {
 			pctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -97,6 +101,7 @@ func run() error {
 	} else {
 		users = store.NewMemory()
 		queueStore = queue.NewMemoryStore()
+		settingsStore = settings.NewMemory()
 	}
 
 	q, err := queue.New(ctx, queueStore)
@@ -106,11 +111,33 @@ func run() error {
 	hub := player.NewHub(q, logger)
 	hub.OriginPatterns = originPatterns(cfg.FrontendURL, cfg.BaseURL)
 
+	// Default playlist: plays whenever the queue is empty.
+	fb, err := fallback.New(ctx, settingsStore, registry, logger)
+	if err != nil {
+		return err
+	}
+	fb.OnChange = q.Notify
+	if cfg.FallbackPlaylistURL != "" && !fb.Configured() {
+		sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		_, seeded, err := fb.Seed(sctx, fallback.Settings{URL: cfg.FallbackPlaylistURL, Enabled: true, Shuffle: cfg.FallbackShuffle})
+		cancel()
+		if err != nil {
+			logger.Warn("FALLBACK_PLAYLIST_URL could not be loaded; set the default playlist from the UI", "url", cfg.FallbackPlaylistURL, "err", err)
+		} else if seeded {
+			logger.Info("default playlist seeded from FALLBACK_PLAYLIST_URL", "url", cfg.FallbackPlaylistURL)
+		}
+	}
+	q.SetFallback(fb)
+	if err := q.Nudge(ctx); err != nil {
+		logger.Warn("start default playlist", "err", err)
+	}
+
 	deps := v1.Deps{
 		Config:    cfg,
 		Users:     users,
 		Queue:     q,
 		Hub:       hub,
+		Fallback:  fb,
 		Providers: registry,
 		Sessions:  auth.NewSessions(cfg.SessionSecret, cfg.SessionTTL, cfg.CookieSecure),
 		Google:    google,

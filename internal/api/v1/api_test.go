@@ -13,9 +13,11 @@ import (
 
 	"central-station/internal/auth"
 	"central-station/internal/config"
+	"central-station/internal/fallback"
 	"central-station/internal/player"
 	"central-station/internal/provider"
 	"central-station/internal/queue"
+	"central-station/internal/settings"
 	"central-station/internal/store"
 )
 
@@ -38,6 +40,18 @@ func (fakeProvider) ResolveURL(_ context.Context, u *url.URL) (*provider.Track, 
 func (fakeProvider) Search(_ context.Context, q string) (*provider.Track, error) {
 	return &provider.Track{Provider: "youtube", ID: "search", Title: "result for " + q}, nil
 }
+func (fakeProvider) PlaylistIDFromURL(u *url.URL) (string, bool) {
+	id := u.Query().Get("list")
+	return id, id != ""
+}
+func (fakeProvider) ResolvePlaylist(_ context.Context, id string) (*provider.Playlist, error) {
+	pl := &provider.Playlist{Provider: "youtube", ID: id, URL: "https://www.youtube.com/playlist?list=" + id, Title: "list " + id}
+	for i := 0; i < 3; i++ {
+		tid := fmt.Sprintf("%s-%d", id, i)
+		pl.Tracks = append(pl.Tracks, &provider.Track{Provider: "youtube", ID: tid, URL: "https://www.youtube.com/watch?v=" + tid, Title: "track " + tid})
+	}
+	return pl, nil
+}
 
 type testAPI struct {
 	t   *testing.T
@@ -57,11 +71,18 @@ func newTestAPI(t *testing.T) *testAPI {
 		t.Fatal(err)
 	}
 	q := queue.NewMemory()
+	fb, err := fallback.New(context.Background(), settings.NewMemory(), reg, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fb.OnChange = q.Notify
+	q.SetFallback(fb)
 	h := Handler(Deps{
 		Config:    cfg,
 		Users:     store.NewMemory(),
 		Queue:     q,
 		Hub:       player.NewHub(q, nil),
+		Fallback:  fb,
 		Providers: reg,
 		Sessions:  auth.NewSessions(cfg.SessionSecret, time.Hour, false),
 	})

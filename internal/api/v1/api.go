@@ -15,6 +15,7 @@ import (
 
 	"central-station/internal/auth"
 	"central-station/internal/config"
+	"central-station/internal/fallback"
 	"central-station/internal/httpx"
 	"central-station/internal/player"
 	"central-station/internal/provider"
@@ -35,6 +36,7 @@ type Deps struct {
 	Sessions  *auth.Sessions
 	Google    *auth.Google // nil when Google SSO is not configured
 	Hub       *player.Hub
+	Fallback  *fallback.Manager // nil disables the default-playlist endpoints
 }
 
 type api struct{ Deps }
@@ -71,6 +73,11 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("POST /playback/pause", a.perm(rbac.PlaybackControl, a.pause))
 	mux.Handle("POST /playback/resume", a.perm(rbac.PlaybackControl, a.resume))
 	mux.Handle("POST /playback/complete", a.perm(rbac.PlaybackControl, a.complete))
+
+	// Default playlist (plays when the queue is empty)
+	mux.Handle("GET /settings/fallback", a.perm(rbac.QueueRead, a.getFallback))
+	mux.Handle("PUT /settings/fallback", a.perm(rbac.FallbackManage, a.putFallback))
+	mux.Handle("POST /settings/fallback/refresh", a.perm(rbac.FallbackManage, a.refreshFallback))
 
 	// Player + live events
 	mux.Handle("GET /player", auth.RequireAuth(httpx.HandlerFunc(a.getPlayer)))
@@ -115,8 +122,11 @@ func providerError(err error) error {
 		unsupported *provider.UnsupportedProviderError
 		unknown     *provider.UnknownProviderError
 		mismatch    *provider.ProviderMismatchError
+		noPlaylists *provider.PlaylistsUnsupportedError
 	)
 	switch {
+	case errors.As(err, &noPlaylists):
+		return httpx.BadRequest("playlists_unsupported", "%s", noPlaylists.Error())
 	case errors.As(err, &unsupported):
 		return httpx.BadRequest("unsupported_provider", "%s", unsupported.Error()).WithDetails(map[string]string{"baseUrl": unsupported.BaseURL})
 	case errors.As(err, &unknown):
@@ -127,6 +137,8 @@ func providerError(err error) error {
 		return httpx.BadRequest("invalid_input", "%s", err.Error())
 	case errors.Is(err, provider.ErrInvalidURL):
 		return httpx.BadRequest("invalid_url", "%s", err.Error())
+	case errors.Is(err, provider.ErrNotPlaylist):
+		return httpx.BadRequest("not_a_playlist", "%s", err.Error())
 	case errors.Is(err, provider.ErrNotFound):
 		return httpx.NotFound("track_not_found", "%s", err.Error())
 	case errors.Is(err, provider.ErrUnavailable):

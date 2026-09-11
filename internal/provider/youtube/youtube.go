@@ -29,19 +29,21 @@ type Provider struct {
 	HTTP   *http.Client
 
 	// Endpoints are overridable for tests.
-	APIBaseURL    string // https://www.googleapis.com/youtube/v3
-	OEmbedURL     string // https://www.youtube.com/oembed
-	SearchPageURL string // https://www.youtube.com/results
+	APIBaseURL      string // https://www.googleapis.com/youtube/v3
+	OEmbedURL       string // https://www.youtube.com/oembed
+	SearchPageURL   string // https://www.youtube.com/results
+	PlaylistPageURL string // https://www.youtube.com/playlist
 }
 
 // New returns a YouTube provider. apiKey may be empty to use the keyless fallback.
 func New(apiKey string) *Provider {
 	return &Provider{
-		APIKey:        apiKey,
-		HTTP:          &http.Client{Timeout: 10 * time.Second},
-		APIBaseURL:    "https://www.googleapis.com/youtube/v3",
-		OEmbedURL:     "https://www.youtube.com/oembed",
-		SearchPageURL: "https://www.youtube.com/results",
+		APIKey:          apiKey,
+		HTTP:            &http.Client{Timeout: 10 * time.Second},
+		APIBaseURL:      "https://www.googleapis.com/youtube/v3",
+		OEmbedURL:       "https://www.youtube.com/oembed",
+		SearchPageURL:   "https://www.youtube.com/results",
+		PlaylistPageURL: "https://www.youtube.com/playlist",
 	}
 }
 

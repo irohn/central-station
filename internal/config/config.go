@@ -34,6 +34,12 @@ type Config struct {
 	DefaultProvider string
 	YouTubeAPIKey   string
 
+	// FallbackPlaylistURL seeds the default playlist (played when the queue is
+	// empty) the first time the server starts with no playlist configured.
+	// Managers can change it from the UI afterwards.
+	FallbackPlaylistURL string
+	FallbackShuffle     bool
+
 	AuthDevMode bool
 
 	// PlayerToken authenticates the headless player container. Empty disables the player socket.
@@ -67,6 +73,7 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 		DefaultRole:         strings.ToLower(envOr(getenv, "DEFAULT_ROLE", "listener")),
 		DefaultProvider:     strings.ToLower(envOr(getenv, "DEFAULT_PROVIDER", "youtube")),
 		YouTubeAPIKey:       getenv("YOUTUBE_API_KEY"),
+		FallbackPlaylistURL: strings.TrimSpace(getenv("FALLBACK_PLAYLIST_URL")),
 		PlayerToken:         strings.TrimSpace(getenv("PLAYER_TOKEN")),
 		DatabaseURL:         strings.TrimSpace(getenv("DATABASE_URL")),
 	}
@@ -80,6 +87,9 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	}
 	if c.AuthDevMode, err = parseBool(getenv("AUTH_DEV_MODE"), false); err != nil {
 		return nil, fmt.Errorf("AUTH_DEV_MODE: %w", err)
+	}
+	if c.FallbackShuffle, err = parseBool(getenv("FALLBACK_SHUFFLE"), true); err != nil {
+		return nil, fmt.Errorf("FALLBACK_SHUFFLE: %w", err)
 	}
 
 	if c.Env != "development" && c.Env != "production" {
