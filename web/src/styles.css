@@ -85,12 +85,17 @@ h2 { font-size: 1.05rem; }
 .dot.badge { position: absolute; top: 9px; right: 9px; width: 9px; height: 9px; border: 2px solid var(--bg); box-sizing: content-box; }
 
 /* Menu: dropdown on desktop, bottom sheet on phones */
-.menu-backdrop { position: fixed; inset: 0; z-index: 30; background: transparent; }
+/* The menu is portalled to <body>; on desktop it is placed under the gear
+   (top-right of the viewport, which is where the gear sits), on phones it is a sheet. */
+.menu-layer { position: fixed; inset: 0; z-index: 30; }
+.menu-backdrop { position: absolute; inset: 0; background: transparent; }
 .menu {
-  position: absolute; right: 0; top: calc(100% + 6px); z-index: 31; width: 320px; max-width: calc(100vw - 2rem);
-  background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow); overflow: hidden;
+  position: absolute; right: max(1rem, calc((100vw - 900px) / 2 + 1rem)); top: calc(0.6rem + 44px + 6px + env(safe-area-inset-top));
+  width: 320px; max-width: calc(100vw - 2rem); max-height: calc(100vh - 5rem); overflow-y: auto;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow);
 }
 .menu-user { display: flex; align-items: center; gap: 0.75rem; padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); }
+.menu-close { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; }
 .menu-user-text { min-width: 0; flex: 1; }
 .menu-status { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); background: var(--panel-2); font-size: 0.92rem; }
 .menu-status .dot { margin-top: 0.35rem; }
@@ -150,7 +155,12 @@ input, select {
   padding: 0.55rem 0.7rem; font: inherit; font-size: 16px; /* prevents iOS zoom on focus */ flex: 1; min-width: 0;
 }
 input:focus, select:focus { outline: none; border-color: var(--accent); }
-.add-form label { display: block; margin-bottom: 0.4rem; color: var(--muted); font-size: 0.9rem; }
+/* Up next header: title, inline add form, count */
+.queue-head { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+.queue-head h2 { margin: 0; }
+.add-inline { display: flex; gap: 0.5rem; flex: 1 1 260px; min-width: 0; }
+.add-inline input { flex: 1; min-width: 0; }
+.queued-count { margin-left: auto; white-space: nowrap; }
 .field { display: block; margin: 0.75rem 0; }
 .field input { width: 100%; }
 .field-label { display: block; margin-bottom: 0.35rem; color: var(--muted); font-size: 0.9rem; }
@@ -238,12 +248,16 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 
   .menu-backdrop { background: rgba(0, 0, 0, 0.35); }
   .menu {
-    position: fixed; left: 0; right: 0; bottom: 0; top: auto; width: auto; max-width: none;
+    left: 0; right: 0; bottom: 0; top: auto; width: auto; max-width: none; max-height: 85vh;
     border-radius: 18px 18px 0 0; border-bottom: 0; padding-bottom: env(safe-area-inset-bottom);
     animation: sheet-in 0.18s ease-out;
   }
   .menu::before { content: ""; display: block; width: 40px; height: 4px; border-radius: 2px; background: var(--border); margin: 0.5rem auto 0; }
   .menu-item { min-height: 48px; }
+
+  .queue-head h2 { order: 0; }
+  .queued-count { order: 1; }
+  .add-inline { order: 2; flex-basis: 100%; }
 }
 @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .menu, .spin, .progress .bar { animation: none; transition: none; } }

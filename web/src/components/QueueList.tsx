@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { api, ApiError } from "../api";
 import type { QueueState, User } from "../types";
+import { AddForm } from "./AddForm";
 
-export function QueueList({ queue, user }: { queue: QueueState; user: User }) {
+export function QueueList({ queue, user, onAdded }: { queue: QueueState; user: User; onAdded: (q: QueueState) => void }) {
   const [error, setError] = useState<string | null>(null);
+  const [addResult, setAddResult] = useState<{ ok?: string; error?: string } | null>(null);
+  const canAdd = user.permissions.includes("queue:add");
   const canRemoveAny = user.permissions.includes("queue:remove_any");
   const canRemoveOwn = user.permissions.includes("queue:remove_own");
   const canReorder = user.permissions.includes("queue:reorder");
@@ -27,10 +30,14 @@ export function QueueList({ queue, user }: { queue: QueueState; user: User }) {
 
   return (
     <section className="card">
-      <div className="row space-between">
+      <div className="queue-head">
         <h2>Up next</h2>
-        <span className="muted">{queue.items.length} queued</span>
+        {canAdd && <AddForm onAdded={onAdded} onResult={setAddResult} />}
+        <span className="muted small queued-count">{queue.items.length} queued</span>
       </div>
+      {!canAdd && <p className="muted small">You are a listener. Ask a manager for collaborator access to add songs.</p>}
+      {addResult?.ok && <p className="ok small">{addResult.ok}</p>}
+      {addResult?.error && <p className="error small">{addResult.error}</p>}
       {error && <p className="error">{error}</p>}
       {queue.items.length === 0 ? (
         <p className="muted">

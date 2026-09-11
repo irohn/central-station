@@ -4,7 +4,6 @@ import type { User } from "./types";
 import { useLive } from "./useLive";
 import { Login } from "./components/Login";
 import { NowPlaying } from "./components/NowPlaying";
-import { AddForm } from "./components/AddForm";
 import { QueueList } from "./components/QueueList";
 import { FallbackCard } from "./components/FallbackCard";
 import { FallbackSettings } from "./components/FallbackSettings";
@@ -94,12 +93,7 @@ export default function App() {
         {view === "queue" && queue && (
           <>
             <NowPlaying queue={queue} player={player} user={user} />
-            {user.permissions.includes("queue:add") ? (
-              <AddForm onAdded={setQueue} />
-            ) : (
-              <p className="muted small">You are a listener. Ask a manager for collaborator access to add songs.</p>
-            )}
-            <QueueList queue={queue} user={user} />
+            <QueueList queue={queue} user={user} onAdded={setQueue} />
             <FallbackCard queue={queue} user={user} onManage={() => setView("fallback")} />
           </>
         )}

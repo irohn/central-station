@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import type { PlayerStatus, User } from "../types";
 import type { Theme } from "../theme";
-import { Gear, ListMusic, LogOut, Moon, Radio, Sun, UsersIcon } from "./Icons";
+import { Gear, ListMusic, LogOut, Moon, Radio, Sun, UsersIcon, X } from "./Icons";
 
 export type MenuView = "fallback" | "users";
 
@@ -22,7 +23,13 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
     if (!open) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
     document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
+    // Keep the page from scrolling behind the sheet on phones.
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
   }, [open]);
 
   const go = (v: MenuView) => { setOpen(false); onNavigate(v); };
@@ -46,8 +53,10 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
         <span className={`dot badge ${health}`} />
       </button>
 
-      {open && (
-        <>
+      {/* Rendered on <body>: inside the sticky top bar, Safari would anchor the
+          fixed bottom sheet to the bar (backdrop-filter creates a containing block). */}
+      {open && createPortal(
+        <div className="menu-layer">
           <div className="menu-backdrop" onClick={() => setOpen(false)} />
           <div className="menu" role="menu">
             <div className="menu-user">
@@ -57,6 +66,7 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
                 <div className="muted small ellipsis">{user.email}</div>
               </div>
               <span className="pill role">{user.role}</span>
+              <button className="btn icon menu-close" type="button" aria-label="Close menu" onClick={() => setOpen(false)}><X /></button>
             </div>
 
             <div className="menu-status">
@@ -93,7 +103,8 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
               </button>
             </div>
           </div>
-        </>
+        </div>,
+        document.body,
       )}
     </div>
   );
