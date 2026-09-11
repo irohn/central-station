@@ -2,11 +2,34 @@ package v1
 
 import (
 	"crypto/subtle"
+	"errors"
 	"net/http"
 	"strings"
 
 	"central-station/internal/httpx"
+	"central-station/internal/player"
 )
+
+// POST /playback/volume  {"volume": 60}   (managers)
+func (a *api) setVolume(w http.ResponseWriter, r *http.Request) error {
+	var body struct {
+		Volume *int `json:"volume"`
+	}
+	if err := httpx.Decode(r, &body, false); err != nil {
+		return err
+	}
+	if body.Volume == nil {
+		return httpx.BadRequest("invalid_input", "volume is required")
+	}
+	if err := a.Hub.SetVolume(r.Context(), *body.Volume); err != nil {
+		if errors.Is(err, player.ErrBadVolume) {
+			return httpx.BadRequest("invalid_volume", "%s", err.Error())
+		}
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, a.Hub.Status())
+	return nil
+}
 
 // GET /player  (any signed-in user)
 func (a *api) getPlayer(w http.ResponseWriter, _ *http.Request) error {

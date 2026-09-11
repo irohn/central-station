@@ -58,7 +58,7 @@ func (a *api) googleCallback(w http.ResponseWriter, r *http.Request) error {
 		return a.loginFailed(w, r, st.Redirect, "email_not_verified")
 	}
 	if !a.emailAllowed(id.Email) {
-		return a.loginFailed(w, r, st.Redirect, "domain_not_allowed")
+		return a.loginFailed(w, r, st.Redirect, "email_not_allowed")
 	}
 	u, err := a.signIn(r, &store.User{Email: id.Email, Name: id.Name, PictureURL: id.Picture, GoogleSub: id.Sub}, "")
 	if err != nil {
@@ -90,6 +90,9 @@ func (a *api) devLogin(w http.ResponseWriter, r *http.Request) error {
 	}
 	if body.Name == "" {
 		body.Name = strings.SplitN(body.Email, "@", 2)[0]
+	}
+	if !a.emailAllowed(body.Email) {
+		return httpx.Forbidden("email %s is not on the sign-in allow-list", body.Email)
 	}
 	var role rbac.Role
 	if body.Role != "" {
@@ -169,15 +172,28 @@ func (a *api) me(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// emailAllowed applies the sign-in allow-list (see config.AccessAllowlist).
+// Admins are always allowed so the list can never lock everyone out.
 func (a *api) emailAllowed(email string) bool {
-	if len(a.Config.AllowedEmailDomains) == 0 {
+	if !a.Config.AccessAllowlist {
 		return true
+	}
+	email = strings.ToLower(strings.TrimSpace(email))
+	for _, e := range a.Config.AdminEmails {
+		if e == email {
+			return true
+		}
+	}
+	for _, e := range a.Config.AllowedEmails {
+		if e == email {
+			return true
+		}
 	}
 	at := strings.LastIndex(email, "@")
 	if at < 0 {
 		return false
 	}
-	domain := strings.ToLower(email[at+1:])
+	domain := email[at+1:]
 	for _, d := range a.Config.AllowedEmailDomains {
 		if d == domain {
 			return true

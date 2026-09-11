@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, eventsWsUrl } from "./api";
 import type { LiveEvent, PlayerStatus, QueueState } from "./types";
 
-const emptyPlayer: PlayerStatus = { online: false, positionSeconds: 0, durationSeconds: 0 };
+const emptyPlayer: PlayerStatus = { online: false, positionSeconds: 0, durationSeconds: 0, volume: 80 };
 
 /** Keeps queue + player state in sync over the events WebSocket, with reconnect. */
 export function useLive(enabled: boolean) {

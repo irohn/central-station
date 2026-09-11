@@ -54,4 +54,24 @@ func TestProductionGuards(t *testing.T) {
 	if c.AdminEmails[0] != "boss@example.com" || c.AllowedEmailDomains[0] != "example.com" {
 		t.Fatalf("lists = %v %v", c.AdminEmails, c.AllowedEmailDomains)
 	}
+	if !c.AccessAllowlist {
+		t.Fatal("allow-list should be enforced when a list is set and ACCESS_ALLOWLIST is unset")
+	}
+}
+
+func TestAccessAllowlistFlag(t *testing.T) {
+	base := map[string]string{"AUTH_DEV_MODE": "true"}
+	if c, _ := LoadFrom(env(base)); c.AccessAllowlist {
+		t.Fatal("nothing set: should be open")
+	}
+	base["ALLOWED_EMAILS"] = "A@b.com"
+	base["ACCESS_ALLOWLIST"] = "false"
+	c, err := LoadFrom(env(base))
+	if err != nil || c.AccessAllowlist || c.AllowedEmails[0] != "a@b.com" {
+		t.Fatalf("explicit false: %v %+v", err, c)
+	}
+	base["ACCESS_ALLOWLIST"] = "maybe"
+	if _, err := LoadFrom(env(base)); err == nil {
+		t.Fatal("bad bool accepted")
+	}
 }

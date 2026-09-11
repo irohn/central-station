@@ -53,6 +53,12 @@ func (fakeProvider) ResolvePlaylist(_ context.Context, id string) (*provider.Pla
 	return pl, nil
 }
 
+func newTestHub(q *queue.Service) *player.Hub {
+	h := player.NewHub(q, nil)
+	h.VolumeStore = settings.NewMemory()
+	return h
+}
+
 type testAPI struct {
 	t   *testing.T
 	srv *httptest.Server
@@ -81,7 +87,7 @@ func newTestAPI(t *testing.T) *testAPI {
 		Config:    cfg,
 		Users:     store.NewMemory(),
 		Queue:     q,
-		Hub:       player.NewHub(q, nil),
+		Hub:       newTestHub(q),
 		Fallback:  fb,
 		Providers: reg,
 		Sessions:  auth.NewSessions(cfg.SessionSecret, time.Hour, false),

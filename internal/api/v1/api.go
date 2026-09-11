@@ -73,6 +73,7 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("POST /playback/pause", a.perm(rbac.PlaybackControl, a.pause))
 	mux.Handle("POST /playback/resume", a.perm(rbac.PlaybackControl, a.resume))
 	mux.Handle("POST /playback/complete", a.perm(rbac.PlaybackControl, a.complete))
+	mux.Handle("POST /playback/volume", a.perm(rbac.PlaybackControl, a.setVolume))
 
 	// Default playlist (plays when the queue is empty)
 	mux.Handle("GET /settings/fallback", a.perm(rbac.QueueRead, a.getFallback))

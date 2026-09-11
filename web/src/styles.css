@@ -191,6 +191,16 @@ input:focus, select:focus { outline: none; border-color: var(--accent); }
 .progress .bar { height: 100%; background: var(--accent); transition: width 1s linear; }
 .origin { display: inline-flex; align-items: center; gap: 0.3rem; margin-left: 0.5rem; padding: 0.05rem 0.5rem; border-radius: 999px; background: var(--panel-2); font-size: 0.8rem; vertical-align: middle; }
 
+/* Volume */
+.volume { display: flex; align-items: center; gap: 0.6rem; margin-top: 0.85rem; }
+.volume > svg { flex: 0 0 auto; }
+.volume input[type="range"] {
+  flex: 1; min-width: 0; padding: 0; margin: 0; border: 0; background: none; height: 28px;
+  accent-color: var(--accent); cursor: pointer; touch-action: none;
+}
+.volume-bar { flex: 1; margin: 0; }
+.volume-value { width: 3ch; text-align: right; font-variant-numeric: tabular-nums; }
+
 /* Default playlist card */
 .fallback-card { border-style: dashed; }
 .fallback-card.off { background: transparent; }

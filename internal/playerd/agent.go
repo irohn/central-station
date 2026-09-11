@@ -32,6 +32,7 @@ type Agent struct {
 	// state owned by the run loop
 	loadedItem *queue.Item
 	paused     bool
+	volume     int // last level applied to mpv; -1 until the first state
 }
 
 // Run connects (and reconnects with backoff) until ctx is cancelled or mpv dies.
@@ -39,6 +40,7 @@ func (a *Agent) Run(ctx context.Context) error {
 	if a.ProgressInterval == 0 {
 		a.ProgressInterval = 2 * time.Second
 	}
+	a.volume = -1
 	backoff := time.Second
 	for {
 		err := a.session(ctx)
@@ -148,6 +150,14 @@ func (a *Agent) session(ctx context.Context) error {
 
 // reconcile makes mpv match the desired state.
 func (a *Agent) reconcile(ctx context.Context, st player.DesiredState) {
+	if st.Volume >= 0 && st.Volume <= 100 && st.Volume != a.volume {
+		if err := a.MPV.SetVolume(ctx, st.Volume); err != nil {
+			a.Logger.Warn("set volume", "err", err)
+		} else {
+			a.Logger.Info("volume", "level", st.Volume)
+			a.volume = st.Volume
+		}
+	}
 	switch {
 	case st.Current == nil:
 		if a.loadedItem != nil {

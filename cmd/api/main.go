@@ -113,6 +113,10 @@ func run() error {
 	}
 	hub := player.NewHub(q, logger)
 	hub.OriginPatterns = originPatterns(cfg.FrontendURL, cfg.BaseURL)
+	hub.VolumeStore = settingsStore
+	if err := hub.LoadVolume(ctx); err != nil {
+		logger.Warn("load volume; using default", "err", err)
+	}
 
 	// Default playlist: plays whenever the queue is empty.
 	fb, err := fallback.New(ctx, settingsStore, registry, logger)

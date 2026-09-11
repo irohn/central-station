@@ -2,7 +2,9 @@ package player
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
@@ -12,7 +14,16 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"central-station/internal/queue"
+	"central-station/internal/settings"
 )
+
+// DefaultVolume is used until a manager sets one.
+const DefaultVolume = 80
+
+const volumeKey = "volume"
+
+// ErrBadVolume is returned for levels outside 0-100.
+var ErrBadVolume = errors.New("volume must be between 0 and 100")
 
 const (
 	writeTimeout = 5 * time.Second
@@ -27,10 +38,13 @@ type Hub struct {
 	logger *slog.Logger
 	// OriginPatterns are the browser origins allowed to open spectator sockets.
 	OriginPatterns []string
+	// VolumeStore persists the volume across restarts. Optional.
+	VolumeStore settings.Store
 
 	mu         sync.Mutex
 	player     *websocket.Conn
 	status     Status
+	volume     int
 	spectators map[*websocket.Conn]struct{}
 }
 
@@ -40,9 +54,62 @@ func NewHub(q *queue.Service, logger *slog.Logger) *Hub {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	h := &Hub{queue: q, logger: logger, spectators: map[*websocket.Conn]struct{}{}}
+	h := &Hub{queue: q, logger: logger, volume: DefaultVolume, spectators: map[*websocket.Conn]struct{}{}}
+	h.status.Volume = DefaultVolume
 	q.OnChange = h.onQueueChange
 	return h
+}
+
+// LoadVolume reads the persisted volume from VolumeStore, if any.
+func (h *Hub) LoadVolume(ctx context.Context) error {
+	if h.VolumeStore == nil {
+		return nil
+	}
+	raw, err := h.VolumeStore.Get(ctx, volumeKey)
+	if errors.Is(err, settings.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	var v int
+	if err := json.Unmarshal(raw, &v); err != nil || v < 0 || v > 100 {
+		return fmt.Errorf("stored volume %q is invalid", string(raw))
+	}
+	h.mu.Lock()
+	h.volume = v
+	h.status.Volume = v
+	h.mu.Unlock()
+	return nil
+}
+
+// Volume returns the current level (0-100).
+func (h *Hub) Volume() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.volume
+}
+
+// SetVolume persists the level, pushes it to the player and tells browsers.
+func (h *Hub) SetVolume(ctx context.Context, v int) error {
+	if v < 0 || v > 100 {
+		return ErrBadVolume
+	}
+	if h.VolumeStore != nil {
+		if err := h.VolumeStore.Set(ctx, volumeKey, json.RawMessage(fmt.Sprint(v))); err != nil {
+			return err
+		}
+	}
+	h.mu.Lock()
+	h.volume = v
+	h.status.Volume = v
+	p := h.player
+	h.mu.Unlock()
+	if p != nil {
+		h.send(p, ServerMessage{Type: "state", State: h.desired()})
+	}
+	h.broadcastPlayer()
+	return nil
 }
 
 // Status returns a copy of the player status.
@@ -54,7 +121,7 @@ func (h *Hub) Status() Status {
 
 func (h *Hub) desired() *DesiredState {
 	s := h.queue.Snapshot()
-	return &DesiredState{Status: s.Status, Current: s.Current}
+	return &DesiredState{Status: s.Status, Current: s.Current, Volume: h.Volume()}
 }
 
 // onQueueChange pushes the desired state to the player and the snapshot to browsers.
@@ -103,7 +170,7 @@ func (h *Hub) ServePlayer(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	old := h.player
 	h.player = c
-	h.status = Status{Online: true, ConnectedAt: time.Now(), LastSeenAt: time.Now()}
+	h.status = Status{Online: true, ConnectedAt: time.Now(), LastSeenAt: time.Now(), Volume: h.volume}
 	h.mu.Unlock()
 	if old != nil {
 		h.logger.Info("player replaced by a new connection")
@@ -117,7 +184,7 @@ func (h *Hub) ServePlayer(w http.ResponseWriter, r *http.Request) {
 		h.mu.Lock()
 		if h.player == c {
 			h.player = nil
-			h.status = Status{Online: false, LastSeenAt: time.Now(), LastError: h.status.LastError}
+			h.status = Status{Online: false, LastSeenAt: time.Now(), LastError: h.status.LastError, Volume: h.volume}
 		}
 		h.mu.Unlock()
 		c.Close(websocket.StatusNormalClosure, "")

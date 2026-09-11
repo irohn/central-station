@@ -3,7 +3,7 @@
 //
 // Protocol (JSON over WebSocket, one object per message):
 //
-//	server -> player   {"type":"state","state":{"status":"playing","current":{...}}}
+//	server -> player   {"type":"state","state":{"status":"playing","current":{...},"volume":80}}
 //	player -> server   {"type":"hello","name":"office-pi","version":"..."}
 //	player -> server   {"type":"progress","itemId":"...","positionSeconds":12.3,"durationSeconds":240}
 //	player -> server   {"type":"ended","itemId":"...","reason":"eof"}
@@ -23,6 +23,9 @@ import (
 type DesiredState struct {
 	Status  queue.Status `json:"status"`
 	Current *queue.Item  `json:"current"`
+	// Volume is the output level 0-100 (mpv software volume; 100 = the
+	// host's mixer level unchanged).
+	Volume int `json:"volume"`
 }
 
 // ServerMessage is sent from the API to the player.
@@ -54,6 +57,8 @@ type Status struct {
 	Position    float64   `json:"positionSeconds"`
 	Duration    float64   `json:"durationSeconds"`
 	LastError   string    `json:"lastError,omitempty"`
+	// Volume is the level the player is asked to use (0-100).
+	Volume int `json:"volume"`
 }
 
 // Event is pushed to browser clients (spectators).

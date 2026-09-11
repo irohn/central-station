@@ -182,6 +182,22 @@ pushes them to GitHub Container Registry, and only then tags the commit.
   `read:packages` (`docker login ghcr.io -u <user>`; in Kubernetes a
   `docker-registry` pull secret).
 
+### Sign-in allow-list
+
+`ALLOWED_EMAIL_DOMAINS` and `ALLOWED_EMAILS` list who may sign in; `ADMIN_EMAILS`
+are always allowed. `ACCESS_ALLOWLIST=true|false` switches enforcement on or off
+without touching the lists (unset: enforced iff a list is non-empty). Keep the
+lists filled and flip the flag when the app's exposure changes, e.g. from a
+private tailnet to the public internet.
+
+### Volume
+
+Managers set the output level from the Now Playing card (`POST
+/api/v1/playback/volume {"volume": 0-100}`). It is mpv's software volume, applied
+by the player on every state push and persisted in the `settings` table, so 100%
+equals whatever the host mixer is set to. Everyone sees the current level in the
+player status.
+
 ### Default playlist
 
 When the queue is empty the player falls back to a configurable YouTube playlist

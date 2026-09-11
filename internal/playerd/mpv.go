@@ -63,6 +63,7 @@ func StartMPV(ctx context.Context, logger *slog.Logger, socketPath string, extra
 		"--input-ipc-server=" + socketPath,
 		"--keep-open=no",
 		"--cache=yes",
+		"--volume-max=100",
 	}, extraArgs...)
 	cmd := exec.CommandContext(ctx, "mpv", args...)
 	cmd.Stdout = os.Stdout
@@ -201,6 +202,12 @@ func (m *MPV) LoadURL(ctx context.Context, url string) error {
 // Stop stops playback and clears the playlist (mpv stays idle).
 func (m *MPV) Stop(ctx context.Context) error {
 	_, err := m.Command(ctx, "stop")
+	return err
+}
+
+// SetVolume sets the software volume (0-100).
+func (m *MPV) SetVolume(ctx context.Context, v int) error {
+	_, err := m.Command(ctx, "set_property", "volume", v)
 	return err
 }
 

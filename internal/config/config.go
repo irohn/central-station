@@ -27,7 +27,13 @@ type Config struct {
 	GoogleClientSecret string
 	GoogleRedirectURL  string
 
+	// Sign-in allow-list. When AccessAllowlist is true only ADMIN_EMAILS,
+	// ALLOWED_EMAILS and addresses on ALLOWED_EMAIL_DOMAINS may sign in.
+	// ACCESS_ALLOWLIST unset means "enforce iff either list is non-empty", so
+	// existing deployments that only set ALLOWED_EMAIL_DOMAINS keep working.
+	AccessAllowlist     bool
 	AllowedEmailDomains []string
+	AllowedEmails       []string
 	AdminEmails         []string
 	DefaultRole         string
 
@@ -69,6 +75,7 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 		GoogleClientSecret:  getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:   getenv("GOOGLE_REDIRECT_URL"),
 		AllowedEmailDomains: splitList(getenv("ALLOWED_EMAIL_DOMAINS")),
+		AllowedEmails:       splitList(getenv("ALLOWED_EMAILS")),
 		AdminEmails:         splitList(getenv("ADMIN_EMAILS")),
 		DefaultRole:         strings.ToLower(envOr(getenv, "DEFAULT_ROLE", "listener")),
 		DefaultProvider:     strings.ToLower(envOr(getenv, "DEFAULT_PROVIDER", "youtube")),
@@ -91,6 +98,10 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	if c.FallbackShuffle, err = parseBool(getenv("FALLBACK_SHUFFLE"), true); err != nil {
 		return nil, fmt.Errorf("FALLBACK_SHUFFLE: %w", err)
 	}
+	listsSet := len(c.AllowedEmailDomains) > 0 || len(c.AllowedEmails) > 0
+	if c.AccessAllowlist, err = parseBool(getenv("ACCESS_ALLOWLIST"), listsSet); err != nil {
+		return nil, fmt.Errorf("ACCESS_ALLOWLIST: %w", err)
+	}
 
 	if c.Env != "development" && c.Env != "production" {
 		return nil, fmt.Errorf("APP_ENV must be development or production, got %q", c.Env)
@@ -103,6 +114,12 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	}
 	for i, d := range c.AllowedEmailDomains {
 		c.AllowedEmailDomains[i] = strings.ToLower(strings.TrimPrefix(d, "@"))
+	}
+	for i, e := range c.AllowedEmails {
+		c.AllowedEmails[i] = strings.ToLower(e)
+	}
+	if c.AccessAllowlist && !listsSet && len(c.AdminEmails) == 0 {
+		c.Warnings = append(c.Warnings, "ACCESS_ALLOWLIST is enabled but ALLOWED_EMAIL_DOMAINS, ALLOWED_EMAILS and ADMIN_EMAILS are all empty; nobody can sign in")
 	}
 
 	if c.IsProduction() {

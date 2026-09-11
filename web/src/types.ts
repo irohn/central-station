@@ -98,6 +98,8 @@ export interface PlayerStatus {
   positionSeconds: number;
   durationSeconds: number;
   lastError?: string;
+  /** Output level 0-100 requested from the player. */
+  volume: number;
 }
 
 export interface LiveEvent {
