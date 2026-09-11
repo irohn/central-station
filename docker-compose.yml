@@ -1,0 +1,83 @@
+name: central-station
+
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-central}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-central}
+      POSTGRES_DB: ${POSTGRES_DB:-central}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-central} -d ${POSTGRES_DB:-central}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+    networks: [central]   # internal only
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: central-station-api:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      ADDR: ":8080"
+      # The browser talks to the API through the web container (same origin),
+      # so both public URLs point at the web port by default.
+      BASE_URL: ${BASE_URL:-http://localhost:3000}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      DATABASE_URL: postgres://${POSTGRES_USER:-central}:${POSTGRES_PASSWORD:-central}@db:5432/${POSTGRES_DB:-central}?sslmode=disable
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "${API_PORT:-8080}:8080"   # optional direct access for curl / debugging
+    restart: unless-stopped
+    networks: [central]
+
+  web:
+    build:
+      context: ./web
+    image: central-station-web:latest
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    depends_on: [api]
+    restart: unless-stopped
+    networks: [central]
+
+  player:
+    build:
+      context: .
+      dockerfile: Dockerfile.player
+    image: central-station-player:latest
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      API_URL: http://api:8080
+      PLAYER_NAME: ${PLAYER_NAME:-office-player}
+      # Audio out via the host's PulseAudio/PipeWire socket (WSLg default below).
+      PULSE_SERVER: unix:/run/pulse/native
+      MPV_AO: ${MPV_AO:-pulse}
+    volumes:
+      - ${PULSE_SOCKET:-/mnt/wslg/PulseServer}:/run/pulse/native
+    # Native Linux without a desktop audio server: comment the pulse lines above,
+    # set MPV_AO=alsa and pass the sound card through instead:
+    # devices:
+    #   - /dev/snd:/dev/snd
+    # group_add:
+    #   - audio
+    depends_on: [api]
+    restart: unless-stopped
+    networks: [central]   # internal only: no ports are published
+
+networks:
+  central:
+
+volumes:
+  pgdata:

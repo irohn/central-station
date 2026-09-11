@@ -1,0 +1,25 @@
+# syntax=docker/dockerfile:1.7
+# Headless player: Go agent + mpv + yt-dlp.
+
+FROM golang:1.26-alpine AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+COPY . .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/player ./cmd/player
+
+FROM debian:trixie-slim
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends mpv ca-certificates curl python3 \
+ && rm -rf /var/lib/apt/lists/*
+# yt-dlp changes often; fetch the latest release at build time (rebuild to update).
+RUN curl -fsSL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+ && chmod +x /usr/local/bin/yt-dlp && yt-dlp --version
+COPY --from=build /out/player /usr/local/bin/player
+# Run unprivileged; HOME must be writable for mpv/yt-dlp caches.
+RUN useradd -r -u 1000 -m -d /home/player player || true
+ENV HOME=/tmp
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/player"]
