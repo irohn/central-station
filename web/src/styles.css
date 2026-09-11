@@ -240,6 +240,21 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .send-btn { margin-left: auto; min-height: 44px; }
 .upload-btn { display: inline-block; margin-top: 0.5rem; cursor: pointer; }
 
+/* Alerts */
+.alert-list { list-style: none; margin: 0; padding: 0; }
+.alert-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid var(--border); }
+.alert-row:first-child { border-top: 0; }
+.alert-row.off .alert-main { opacity: 0.6; }
+.alert-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 0.15rem; }
+.alert-main svg { vertical-align: -2px; }
+.alert-actions { display: flex; align-items: center; gap: 0.35rem; flex: 0 0 auto; }
+.alert-actions .switch-row { border: 0; padding: 0; }
+.time-input { flex: 0 0 auto; width: auto; }
+.day-picker { display: flex; gap: 0.25rem; flex-wrap: wrap; }
+.day-picker .day { border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); border-radius: 999px; padding: 0.35rem 0.6rem; font: inherit; font-size: 0.85rem; cursor: pointer; min-height: 34px; }
+.day-picker .day.on { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); border-color: var(--accent); }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+
 /* Playlists card */
 .playlist-row.is-playing .title { color: var(--accent); }
 .shuffle-toggle { color: var(--muted); }
@@ -258,6 +273,13 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .role-select { flex: 0 0 auto; width: auto; }
 
 .login { min-height: 100vh; display: grid; place-items: center; padding: 1rem; }
+.password-login { display: flex; flex-direction: column; gap: 0.5rem; }
+.password-login .tabs.seg { margin: 0.25rem 0; align-self: flex-start; }
+.or { display: flex; align-items: center; gap: 0.6rem; color: var(--muted); font-size: 0.8rem; margin: 0.25rem 0; }
+.or::before, .or::after { content: ""; flex: 1; border-top: 1px solid var(--border); }
+.verify-banner { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.account-form { display: flex; flex-direction: column; gap: 0.5rem; max-width: 420px; }
+.account-form h3 { margin: 0.25rem 0 0; font-size: 0.95rem; }
 .login-card { width: 100%; max-width: 380px; display: flex; flex-direction: column; gap: 0.75rem; }
 .login-card h1 { margin-bottom: 0; }
 .login-card .btn.primary { text-align: center; }
@@ -285,6 +307,8 @@ textarea:focus { outline: none; border-color: var(--accent); }
   .menu-item { min-height: 48px; }
 
   .send-btn { margin-left: 0; width: 100%; text-align: center; justify-content: center; }
+  .alert-row { flex-wrap: wrap; }
+  .alert-actions { width: 100%; justify-content: flex-end; }
   .queue-head h2 { order: 0; }
   .queued-count { order: 1; }
   .add-inline { order: 2; flex-basis: 100%; }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"central-station/internal/auth"
 	"central-station/internal/httpx"
 	"central-station/internal/player"
 )
@@ -78,6 +79,12 @@ func (a *api) eventsWS(w http.ResponseWriter, r *http.Request) error {
 
 // GET /auth/methods  (public) tells the login page which sign-in methods exist.
 func (a *api) authMethods(w http.ResponseWriter, _ *http.Request) error {
-	httpx.JSON(w, http.StatusOK, map[string]bool{"google": a.Google != nil, "dev": a.Config.AuthDevMode})
+	httpx.JSON(w, http.StatusOK, map[string]any{
+		"google":               a.Google != nil,
+		"dev":                  a.Config.AuthDevMode,
+		"password":             a.Config.AuthPasswordEnabled,
+		"passwordVerification": a.verificationMode(),
+		"passwordMinLength":    auth.PasswordMinLength,
+	})
 	return nil
 }

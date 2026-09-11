@@ -64,7 +64,25 @@ type Config struct {
 	ClipsMaxDurationSeconds int
 	TTSMaxChars             int
 
+	// AlertsTimezone is the default IANA timezone new alerts are scheduled in.
+	AlertsTimezone string
+
 	AuthDevMode bool
+
+	// Email + password sign-in (feature flag). New accounts start as
+	// AuthUnverifiedRole and become AuthVerifiedRole once the address is
+	// verified (by email link when SMTP is configured, otherwise by an admin).
+	AuthPasswordEnabled bool
+	AuthUnverifiedRole  string
+	AuthVerifiedRole    string
+
+	// SMTP for verification email. Empty host disables sending.
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPStartTLS bool
 
 	// PlayerToken authenticates the headless player container. Empty disables the player socket.
 	PlayerToken string
@@ -100,6 +118,12 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 		YouTubeAPIKey:       getenv("YOUTUBE_API_KEY"),
 		FallbackPlaylistURL: strings.TrimSpace(getenv("FALLBACK_PLAYLIST_URL")),
 		TTSURL:              strings.TrimSpace(getenv("TTS_URL")),
+		AuthUnverifiedRole:  strings.ToLower(envOr(getenv, "AUTH_UNVERIFIED_ROLE", "listener")),
+		AuthVerifiedRole:    strings.ToLower(envOr(getenv, "AUTH_VERIFIED_ROLE", "collaborator")),
+		SMTPHost:            strings.TrimSpace(getenv("SMTP_HOST")),
+		SMTPUsername:        getenv("SMTP_USERNAME"),
+		SMTPPassword:        getenv("SMTP_PASSWORD"),
+		SMTPFrom:            strings.TrimSpace(getenv("SMTP_FROM")),
 		PlayerToken:         strings.TrimSpace(getenv("PLAYER_TOKEN")),
 		DatabaseURL:         strings.TrimSpace(getenv("DATABASE_URL")),
 	}
@@ -113,6 +137,23 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	}
 	if c.AuthDevMode, err = parseBool(getenv("AUTH_DEV_MODE"), false); err != nil {
 		return nil, fmt.Errorf("AUTH_DEV_MODE: %w", err)
+	}
+	if c.AuthPasswordEnabled, err = parseBool(getenv("AUTH_PASSWORD_ENABLED"), false); err != nil {
+		return nil, fmt.Errorf("AUTH_PASSWORD_ENABLED: %w", err)
+	}
+	for _, r := range []struct{ key, val string }{{"AUTH_UNVERIFIED_ROLE", c.AuthUnverifiedRole}, {"AUTH_VERIFIED_ROLE", c.AuthVerifiedRole}} {
+		if _, err := rbac.ParseRole(r.val); err != nil {
+			return nil, fmt.Errorf("%s: %w", r.key, err)
+		}
+	}
+	if c.SMTPPort, err = parseInt(getenv("SMTP_PORT"), 587); err != nil {
+		return nil, fmt.Errorf("SMTP_PORT: %w", err)
+	}
+	if c.SMTPStartTLS, err = parseBool(getenv("SMTP_STARTTLS"), true); err != nil {
+		return nil, fmt.Errorf("SMTP_STARTTLS: %w", err)
+	}
+	if c.SMTPHost != "" && c.SMTPFrom == "" {
+		return nil, errors.New("SMTP_FROM is required when SMTP_HOST is set")
 	}
 	if c.FallbackShuffle, err = parseBool(getenv("FALLBACK_SHUFFLE"), true); err != nil {
 		return nil, fmt.Errorf("FALLBACK_SHUFFLE: %w", err)
@@ -149,6 +190,10 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 			return nil, fmt.Errorf("%s: must be a positive integer", lim.key)
 		}
 		*lim.dst = v
+	}
+	c.AlertsTimezone = envOr(getenv, "ALERTS_TIMEZONE", "Asia/Jerusalem")
+	if _, err := time.LoadLocation(c.AlertsTimezone); err != nil {
+		return nil, fmt.Errorf("ALERTS_TIMEZONE: unknown timezone %q", c.AlertsTimezone)
 	}
 	listsSet := len(c.AllowedEmailDomains) > 0 || len(c.AllowedEmails) > 0
 	if c.AccessAllowlist, err = parseBool(getenv("ACCESS_ALLOWLIST"), listsSet); err != nil {
@@ -189,11 +234,14 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	if len(c.SessionSecret) < 32 {
 		c.Warnings = append(c.Warnings, "SESSION_SECRET is shorter than 32 characters; use a longer secret")
 	}
-	if !c.GoogleConfigured() && !c.AuthDevMode {
-		return nil, errors.New("GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are required (or set AUTH_DEV_MODE=true for local development)")
+	if !c.GoogleConfigured() && !c.AuthDevMode && !c.AuthPasswordEnabled {
+		return nil, errors.New("no sign-in method: set GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, AUTH_PASSWORD_ENABLED=true, or AUTH_DEV_MODE=true")
 	}
-	if !c.GoogleConfigured() {
+	if !c.GoogleConfigured() && !c.AuthPasswordEnabled {
 		c.Warnings = append(c.Warnings, "Google SSO not configured; only the dev login endpoint is available")
+	}
+	if c.AuthPasswordEnabled && c.SMTPHost == "" {
+		c.Warnings = append(c.Warnings, "AUTH_PASSWORD_ENABLED without SMTP_HOST: new accounts must be verified by an admin from the Users page")
 	}
 	if c.AuthDevMode {
 		c.Warnings = append(c.Warnings, "AUTH_DEV_MODE is enabled; POST /api/v1/auth/dev/login issues sessions without Google")

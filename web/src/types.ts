@@ -3,7 +3,7 @@ export type Role = "listener" | "collaborator" | "manager" | "admin";
 export type Permission =
   | "queue:read" | "history:read" | "track:resolve"
   | "queue:add" | "queue:remove_own" | "playlist:write" | "volume:control"
-  | "queue:remove_any" | "queue:reorder" | "playback:control" | "fallback:manage" | "playlist:remove_any" | "broadcast:send"
+  | "queue:remove_any" | "queue:reorder" | "playback:control" | "fallback:manage" | "playlist:remove_any" | "broadcast:send" | "alerts:manage"
   | "settings:manage" | "users:manage" | "integrations:manage";
 
 export interface User {
@@ -15,6 +15,8 @@ export interface User {
   permissions: Permission[];
   createdAt: string;
   lastLoginAt: string;
+  emailVerified: boolean;
+  hasPassword: boolean;
 }
 
 export interface Track {
@@ -160,6 +162,32 @@ export interface Voice {
   quality?: string;
 }
 
+export interface Alert {
+  id: string;
+  name: string;
+  enabled: boolean;
+  type: "cron";
+  schedule: string;
+  timezone: string;
+  clipId: string;
+  loops: number;
+  chimeId: string;
+  createdById?: string;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
+  lastFiredAt?: string;
+  lastError?: string;
+  nextFireAt?: string;
+}
+
+export interface AlertsResponse {
+  alerts: Alert[];
+  defaultTimezone: string;
+  maxLoops: number;
+  types: string[];
+}
+
 export interface ClipsResponse {
   clips: Clip[];
   defaultChimeId: string;
@@ -183,4 +211,8 @@ export interface LiveEvent {
 export interface AuthMethods {
   google: boolean;
   dev: boolean;
+  password: boolean;
+  /** How password accounts get verified: by email link, or by an admin. */
+  passwordVerification: "email" | "admin";
+  passwordMinLength: number;
 }

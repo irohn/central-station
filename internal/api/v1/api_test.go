@@ -5,12 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
 
+	"central-station/internal/alerts"
 	"central-station/internal/auth"
 	"central-station/internal/clips"
 	"central-station/internal/config"
@@ -69,6 +72,11 @@ type testAPI struct {
 	srv *httptest.Server
 }
 
+func init() {
+	// Handlers log through slog.Default; keep test output readable.
+	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
+}
+
 func newTestAPI(t *testing.T) *testAPI {
 	t.Helper()
 	cfg, err := config.LoadFrom(func(k string) string {
@@ -101,6 +109,7 @@ func newTestAPI(t *testing.T) *testAPI {
 		Clips:     cs,
 		TTS:       tts.New(""),
 		Settings:  settings.NewMemory(),
+		Alerts:    alerts.NewMemory(),
 		Providers: reg,
 		Sessions:  auth.NewSessions(cfg.SessionSecret, time.Hour, false),
 	})

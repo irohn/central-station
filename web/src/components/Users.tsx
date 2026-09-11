@@ -22,6 +22,15 @@ export function Users({ me }: { me: User }) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
   }
+  async function verify(id: string) {
+    setError(null);
+    try {
+      await api("PATCH", `/users/${id}`, { emailVerified: true });
+      await load();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    }
+  }
 
   return (
     <section className="card">
@@ -37,9 +46,12 @@ export function Users({ me }: { me: User }) {
             {u.pictureUrl ? <img src={u.pictureUrl} alt="" className="avatar lg" /> : <span className="avatar lg initial">{u.name.slice(0, 1)}</span>}
             <div className="track-meta">
               <div className="strong ellipsis">{u.name}{u.id === me.id ? <span className="muted"> (you)</span> : ""}</div>
-              <div className="muted small ellipsis">{u.email}</div>
-              <div className="muted small">Last seen {new Date(u.lastLoginAt).toLocaleDateString()}</div>
+              <div className="muted small ellipsis">{u.email}{u.hasPassword ? " · password" : " · Google"}</div>
+              <div className="muted small">
+                {u.emailVerified ? "Verified" : <span className="warn">Not verified</span>} · last seen {new Date(u.lastLoginAt).toLocaleDateString()}
+              </div>
             </div>
+            {!u.emailVerified && <button className="btn" type="button" onClick={() => verify(u.id)}>Verify</button>}
             <select className="role-select" value={u.role} disabled={u.id === me.id} aria-label={`Role for ${u.name}`} onChange={(e) => setRole(u.id, e.target.value as Role)}>
               {roles.map((r) => <option key={r} value={r}>{r}</option>)}
             </select>

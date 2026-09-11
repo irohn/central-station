@@ -16,10 +16,11 @@ import (
 type userDTO struct {
 	*store.User
 	Permissions []rbac.Permission `json:"permissions"`
+	HasPassword bool              `json:"hasPassword"`
 }
 
 func toUserDTO(u *store.User) userDTO {
-	return userDTO{User: u, Permissions: u.Role.Permissions()}
+	return userDTO{User: u, Permissions: u.Role.Permissions(), HasPassword: u.HasPassword()}
 }
 
 // GET /auth/google/login?redirect=/somewhere
@@ -118,19 +119,24 @@ func (a *api) devLogin(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// signIn upserts the user and applies role rules: emails in ADMIN_EMAILS are
-// always admins, new users get DEFAULT_ROLE, and forceRole (dev mode only)
-// overrides the stored role.
+// isAdminEmail reports whether email is listed in ADMIN_EMAILS.
+func (a *api) isAdminEmail(email string) bool {
+	email = strings.ToLower(email)
+	for _, e := range a.Config.AdminEmails {
+		if e == email {
+			return true
+		}
+	}
+	return false
+}
+
+// signIn upserts the user (identity-provider path: Google or dev login) and
+// applies role rules: emails in ADMIN_EMAILS are always admins, new users get
+// DEFAULT_ROLE, and forceRole (dev mode only) overrides the stored role.
 func (a *api) signIn(r *http.Request, in *store.User, forceRole rbac.Role) (*store.User, error) {
 	ctx := r.Context()
 	email := strings.ToLower(in.Email)
-	isAdmin := false
-	for _, e := range a.Config.AdminEmails {
-		if e == email {
-			isAdmin = true
-			break
-		}
-	}
+	isAdmin := a.isAdminEmail(email)
 	if _, err := a.Users.GetByEmail(ctx, email); errors.Is(err, store.ErrNotFound) {
 		def, perr := rbac.ParseRole(a.Config.DefaultRole)
 		if perr != nil {

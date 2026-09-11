@@ -27,6 +27,17 @@ func TestRequiresGoogleOrDevMode(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "GOOGLE_CLIENT_ID") {
 		t.Fatalf("err = %v", err)
 	}
+	// Password sign-in alone is a valid method.
+	c, err := LoadFrom(env(map[string]string{"AUTH_PASSWORD_ENABLED": "true"}))
+	if err != nil || !c.AuthPasswordEnabled || c.AuthUnverifiedRole != "listener" || c.AuthVerifiedRole != "collaborator" || c.SMTPPort != 587 {
+		t.Fatalf("password only: %v %+v", err, c)
+	}
+	if _, err := LoadFrom(env(map[string]string{"AUTH_PASSWORD_ENABLED": "true", "AUTH_VERIFIED_ROLE": "owner"})); err == nil {
+		t.Fatal("bad role accepted")
+	}
+	if _, err := LoadFrom(env(map[string]string{"AUTH_PASSWORD_ENABLED": "true", "SMTP_HOST": "smtp.example.com"})); err == nil {
+		t.Fatal("SMTP_HOST without SMTP_FROM accepted")
+	}
 }
 
 func TestProductionGuards(t *testing.T) {
@@ -69,6 +80,16 @@ func TestRolePermissions(t *testing.T) {
 	}
 	if _, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true", "ROLE_PERMISSIONS_LISTENER": "queue:read,nope:x"})); err == nil {
 		t.Fatal("unknown permission accepted")
+	}
+}
+
+func TestAlertsTimezone(t *testing.T) {
+	c, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true"}))
+	if err != nil || c.AlertsTimezone != "Asia/Jerusalem" {
+		t.Fatalf("default: %v %q", err, c.AlertsTimezone)
+	}
+	if _, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true", "ALERTS_TIMEZONE": "Mars/Olympus"})); err == nil {
+		t.Fatal("bad timezone accepted")
 	}
 }
 

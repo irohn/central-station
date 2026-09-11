@@ -13,12 +13,15 @@ import (
 	"syscall"
 	"time"
 
+	"central-station/internal/alerts"
+	"central-station/internal/announce"
 	v1 "central-station/internal/api/v1"
 	"central-station/internal/auth"
 	"central-station/internal/clips"
 	"central-station/internal/config"
 	"central-station/internal/db"
 	"central-station/internal/fallback"
+	"central-station/internal/mail"
 	"central-station/internal/player"
 	"central-station/internal/provider"
 	"central-station/internal/provider/youtube"
@@ -91,6 +94,7 @@ func run() error {
 		queueStore    queue.Store
 		settingsStore settings.Store
 		clipStore     clips.Store
+		alertStore    alerts.Store
 		ready         = func() bool { return true }
 	)
 	if cfg.DatabaseURL != "" {
@@ -106,6 +110,7 @@ func run() error {
 		queueStore = queue.NewPostgresStore(pool)
 		settingsStore = settings.NewPostgres(pool)
 		clipStore = clips.NewPostgres(pool)
+		alertStore = alerts.NewPostgres(pool)
 		ready = func() bool {
 			pctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
@@ -117,6 +122,7 @@ func run() error {
 		queueStore = queue.NewMemoryStore()
 		settingsStore = settings.NewMemory()
 		clipStore = clips.NewMemory()
+		alertStore = alerts.NewMemory()
 	}
 	if err := clips.EnsureBuiltins(ctx, clipStore); err != nil {
 		return fmt.Errorf("install bundled chimes: %w", err)
@@ -155,6 +161,17 @@ func run() error {
 		logger.Warn("start default playlist", "err", err)
 	}
 
+	// Scheduled announcements fire through the same path as manual broadcasts.
+	sched := &alerts.Scheduler{Store: alertStore, Logger: logger, Fire: func(ctx context.Context, al *alerts.Alert) error {
+		b, err := announce.Build(ctx, clipStore, announce.DefaultChime(ctx, settingsStore), al.ClipID, al.Loops, al.ChimeID, "alert", "Alert: "+al.Name)
+		if err != nil {
+			return err
+		}
+		_, err = hub.SendBroadcast(b)
+		return err
+	}}
+	go sched.Run(ctx)
+
 	deps := v1.Deps{
 		Config:    cfg,
 		Users:     users,
@@ -164,6 +181,8 @@ func run() error {
 		Clips:     clipStore,
 		TTS:       ttsClient,
 		Settings:  settingsStore,
+		Alerts:    alertStore,
+		Mail:      &mail.Client{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername, Password: cfg.SMTPPassword, From: cfg.SMTPFrom, StartTLS: cfg.SMTPStartTLS},
 		Providers: registry,
 		Sessions:  auth.NewSessions(cfg.SessionSecret, cfg.SessionTTL, cfg.CookieSecure),
 		Google:    google,
@@ -188,7 +207,7 @@ func run() error {
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("api listening", "version", version, "addr", cfg.Addr, "env", cfg.Env, "baseUrl", cfg.BaseURL, "frontendUrl", cfg.FrontendURL,
-			"googleSSO", cfg.GoogleConfigured(), "devMode", cfg.AuthDevMode, "defaultProvider", registry.DefaultID(), "tts", ttsClient.Enabled())
+			"googleSSO", cfg.GoogleConfigured(), "passwordSignIn", cfg.AuthPasswordEnabled, "smtp", cfg.SMTPHost != "", "devMode", cfg.AuthDevMode, "defaultProvider", registry.DefaultID(), "tts", ttsClient.Enabled())
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

@@ -13,6 +13,7 @@ import (
 func userStoreConformance(t *testing.T, s UserStore) {
 	t.Helper()
 	ctx := context.Background()
+	defer passwordConformance(t, s)
 
 	if _, err := s.GetByEmail(ctx, "nobody@example.com"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("missing email: %v", err)

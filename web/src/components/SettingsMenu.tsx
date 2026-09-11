@@ -2,9 +2,9 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlayerStatus, User } from "../types";
 import type { Theme } from "../theme";
-import { Gear, ListMusic, LogOut, Megaphone, Moon, Radio, Sun, UsersIcon, X } from "./Icons";
+import { Clock, Gear, KeyIcon, ListMusic, LogOut, Megaphone, Moon, Radio, Sun, UsersIcon, X } from "./Icons";
 
-export type MenuView = "fallback" | "users" | "broadcast";
+export type MenuView = "fallback" | "users" | "broadcast" | "alerts" | "account";
 
 export function SettingsMenu({ user, player, connected, theme, onToggleTheme, onNavigate, onLogout }: {
   user: User;
@@ -18,6 +18,7 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
   const [open, setOpen] = useState(false);
   const canManageFallback = user.permissions.includes("fallback:manage");
   const canBroadcast = user.permissions.includes("broadcast:send");
+  const canAlerts = user.permissions.includes("alerts:manage");
   const isAdmin = user.permissions.includes("users:manage");
 
   useEffect(() => {
@@ -80,11 +81,16 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
               <Radio className="muted" />
             </div>
 
-            {(canManageFallback || isAdmin || canBroadcast) && (
+            {(canManageFallback || isAdmin || canBroadcast || canAlerts) && (
               <div className="menu-section">
                 {canBroadcast && (
                   <button className="menu-item" role="menuitem" onClick={() => go("broadcast")}>
                     <Megaphone /> <span>Broadcast</span>
+                  </button>
+                )}
+                {canAlerts && (
+                  <button className="menu-item" role="menuitem" onClick={() => go("alerts")}>
+                    <Clock /> <span>Alerts</span>
                   </button>
                 )}
                 {canManageFallback && (
@@ -101,6 +107,11 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
             )}
 
             <div className="menu-section">
+              {user.hasPassword && (
+                <button className="menu-item" role="menuitem" onClick={() => go("account")}>
+                  <KeyIcon /> <span>Change password</span>
+                </button>
+              )}
               <button className="menu-item" role="menuitem" onClick={onToggleTheme}>
                 {theme === "light" ? <Moon /> : <Sun />} <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>
               </button>

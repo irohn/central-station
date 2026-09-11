@@ -39,29 +39,54 @@ func (a *api) listUsers(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
-// PATCH /users/{id}  {"role": "collaborator"}
+// PATCH /users/{id}  {"role": "collaborator"} and/or {"emailVerified": true}
+//
+// Verifying applies the same promotion rules as the email link; unverifying
+// only clears the flag (roles are never lowered automatically).
 func (a *api) updateUser(w http.ResponseWriter, r *http.Request) error {
 	me := auth.MustUser(r)
 	id := r.PathValue("id")
 	var body struct {
-		Role string `json:"role"`
+		Role          *string `json:"role"`
+		EmailVerified *bool   `json:"emailVerified"`
 	}
 	if err := httpx.Decode(r, &body, false); err != nil {
 		return err
 	}
-	role, err := rbac.ParseRole(body.Role)
-	if err != nil {
-		return httpx.BadRequest("invalid_role", "%s", err.Error())
+	if body.Role == nil && body.EmailVerified == nil {
+		return httpx.BadRequest("invalid_input", "role or emailVerified is required")
 	}
-	if id == me.ID && role != me.Role {
-		return httpx.Conflict("cannot_change_own_role", "you cannot change your own role")
-	}
-	u, err := a.Users.SetRole(r.Context(), id, role)
+	u, err := a.Users.GetByID(r.Context(), id)
 	if errors.Is(err, store.ErrNotFound) {
 		return httpx.NotFound("user_not_found", "user %s not found", id)
 	}
 	if err != nil {
 		return err
+	}
+	if body.EmailVerified != nil && *body.EmailVerified != u.EmailVerified {
+		if *body.EmailVerified {
+			if u, err = a.markVerified(r.Context(), u); err != nil {
+				return err
+			}
+		} else {
+			if u, err = a.Users.SetVerified(r.Context(), id, false); err != nil {
+				return err
+			}
+		}
+	}
+	if body.Role != nil {
+		role, err := rbac.ParseRole(*body.Role)
+		if err != nil {
+			return httpx.BadRequest("invalid_role", "%s", err.Error())
+		}
+		if id == me.ID && role != me.Role {
+			return httpx.Conflict("cannot_change_own_role", "you cannot change your own role")
+		}
+		if role != u.Role {
+			if u, err = a.Users.SetRole(r.Context(), id, role); err != nil {
+				return err
+			}
+		}
 	}
 	httpx.JSON(w, http.StatusOK, toUserDTO(u))
 	return nil

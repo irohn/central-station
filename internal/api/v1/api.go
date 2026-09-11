@@ -11,13 +11,17 @@ package v1
 
 import (
 	"errors"
+	"log/slog"
 	"net/http"
+	"time"
 
+	"central-station/internal/alerts"
 	"central-station/internal/auth"
 	"central-station/internal/clips"
 	"central-station/internal/config"
 	"central-station/internal/fallback"
 	"central-station/internal/httpx"
+	"central-station/internal/mail"
 	"central-station/internal/player"
 	"central-station/internal/provider"
 	"central-station/internal/queue"
@@ -43,13 +47,18 @@ type Deps struct {
 	Clips     clips.Store       // recordings, TTS output and chimes
 	TTS       *tts.Client       // nil or unconfigured disables typed announcements
 	Settings  settings.Store    // small admin settings (default chime)
+	Alerts    alerts.Store      // scheduled announcements (nil disables)
+	Mail      *mail.Client      // verification email; nil or unconfigured = admins verify
 }
 
-type api struct{ Deps }
+type api struct {
+	Deps
+	loginLimiter *auth.Limiter
+}
 
 // Handler builds the v1 router. Mount it with http.StripPrefix("/api/v1", ...).
 func Handler(d Deps) http.Handler {
-	a := &api{d}
+	a := &api{Deps: d, loginLimiter: auth.NewLimiter(10, 15*time.Minute)}
 	mux := http.NewServeMux()
 
 	// Auth
@@ -59,6 +68,13 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("POST /auth/logout", httpx.HandlerFunc(a.logout))
 	if d.Config.AuthDevMode {
 		mux.Handle("POST /auth/dev/login", httpx.HandlerFunc(a.devLogin))
+	}
+	if d.Config.AuthPasswordEnabled {
+		mux.Handle("POST /auth/password/register", httpx.HandlerFunc(a.passwordRegister))
+		mux.Handle("POST /auth/password/login", httpx.HandlerFunc(a.passwordLogin))
+		mux.Handle("POST /auth/password/change", auth.RequireAuth(httpx.HandlerFunc(a.passwordChange)))
+		mux.Handle("POST /auth/verify/resend", auth.RequireAuth(httpx.HandlerFunc(a.verifyResend)))
+		mux.Handle("GET /auth/verify", httpx.HandlerFunc(a.verifyEmail))
 	}
 	mux.Handle("GET /me", auth.RequireAuth(httpx.HandlerFunc(a.me)))
 
@@ -101,6 +117,13 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("POST /broadcasts", a.perm(rbac.BroadcastSend, a.sendBroadcast))
 	mux.Handle("PUT /settings/chime", a.perm(rbac.SettingsManage, a.setDefaultChime))
 
+	// Alerts (scheduled announcements)
+	mux.Handle("GET /alerts", a.perm(rbac.AlertsManage, a.listAlerts))
+	mux.Handle("POST /alerts", a.perm(rbac.AlertsManage, a.createAlert))
+	mux.Handle("PATCH /alerts/{id}", a.perm(rbac.AlertsManage, a.updateAlert))
+	mux.Handle("DELETE /alerts/{id}", a.perm(rbac.AlertsManage, a.deleteAlert))
+	mux.Handle("POST /alerts/{id}/test", a.perm(rbac.AlertsManage, a.testAlert))
+
 	// Player + live events
 	mux.Handle("GET /player", auth.RequireAuth(httpx.HandlerFunc(a.getPlayer)))
 	mux.Handle("GET /events/ws", auth.RequireAuth(httpx.HandlerFunc(a.eventsWS)))
@@ -127,6 +150,8 @@ func Handler(d Deps) http.Handler {
 	outer.Handle("/", authn.Middleware(mux))
 	return versionHeader(outer)
 }
+
+func (a *api) logger() *slog.Logger { return slog.Default() }
 
 func (a *api) perm(p rbac.Permission, fn httpx.HandlerFunc) http.Handler {
 	return auth.RequirePermission(p)(fn)

@@ -214,6 +214,18 @@ old ones, so a clip an alert depends on can never vanish silently. Because two m
 use a mixing ALSA device (`MPV_AUDIO_DEVICE=alsa/default:CARD=<name>`, i.e. dmix)
 rather than `plughw`, or PulseAudio.
 
+### Alerts (scheduled announcements)
+
+Managers (`alerts:manage`) schedule clips from the gear menu → Alerts: a name,
+a time and weekdays (or a raw 5-field cron expression), a timezone (default
+`ALERTS_TIMEZONE`), a saved clip, a repeat count and a chime. A scheduler in the
+API checks every 30 seconds and fires due alerts through the broadcast path.
+Occurrences missed by more than five minutes (for example while the API was
+down) are skipped, never replayed. Each alert has a `type`; only `cron` exists
+today, so event- or webhook-driven alerts can be added later without changing
+the shape. API: `GET/POST /alerts`, `PATCH|DELETE /alerts/{id}`,
+`POST /alerts/{id}/test`.
+
 ### Queued playlists
 
 Collaborators can paste a whole playlist (`youtube.com/playlist?list=…`,
@@ -225,6 +237,19 @@ manager, `playlist:remove_any`) can toggle shuffle or skip the whole playlist
 from the Playlists card. Tracks it produces carry `source: "playlist"` plus the
 playlist id and title. API: `POST /queue {"input": <playlist url>, "shuffle": bool}`,
 `PATCH /queue/playlists/{id} {"shuffle": bool}`, `DELETE /queue/playlists/{id}`.
+
+### Email + password sign-in
+
+`AUTH_PASSWORD_ENABLED=true` adds register/sign-in forms next to Google. Passwords
+are hashed with argon2id (64 MiB, 3 passes) and never stored or logged in clear;
+sign-in is rate-limited (10 failures per email and address per 15 minutes) and
+answers identically for unknown, Google-only and wrong-password attempts. New
+accounts start as `AUTH_UNVERIFIED_ROLE` (listener) and are promoted to
+`AUTH_VERIFIED_ROLE` (collaborator) once the address is verified, either by the
+link emailed through SMTP (`SMTP_*`) or, without SMTP, by an admin pressing
+Verify on the Users page. `ADMIN_EMAILS` only grant admin to verified addresses,
+so nobody can claim an admin email without proving it. The allow-list applies to
+registration too. Users can change their password from the gear menu.
 
 ### Sign-in allow-list
 

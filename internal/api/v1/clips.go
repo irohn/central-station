@@ -12,6 +12,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"central-station/internal/announce"
 	"central-station/internal/auth"
 	"central-station/internal/clips"
 	"central-station/internal/httpx"
@@ -85,15 +86,7 @@ func (a *api) requireClips() error {
 
 // defaultChimeID returns the configured default chime (falls back to the bundled one).
 func (a *api) defaultChimeID(ctx context.Context) string {
-	if a.Settings != nil {
-		if raw, err := a.Settings.Get(ctx, chimeKey); err == nil {
-			id := strings.Trim(string(raw), "\"")
-			if id != "" {
-				return id
-			}
-		}
-	}
-	return clips.DefaultChimeID
+	return announce.DefaultChime(ctx, a.Settings)
 }
 
 // GET /clips
@@ -421,6 +414,17 @@ func (a *api) setDefaultChime(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// announceError maps announce.Build failures to API errors.
+func announceError(err error) error {
+	switch {
+	case errors.Is(err, clips.ErrNotFound):
+		return httpx.NotFound("clip_not_found", "%s", err.Error())
+	case errors.Is(err, announce.ErrNotAChime):
+		return httpx.BadRequest("not_a_chime", "%s", err.Error())
+	}
+	return err
+}
+
 // GET /broadcasts
 func (a *api) getBroadcasts(w http.ResponseWriter, _ *http.Request) error {
 	cur, queued := a.Hub.Broadcasts()
@@ -448,30 +452,9 @@ func (a *api) sendBroadcast(w http.ResponseWriter, r *http.Request) error {
 	if body.Loops < 1 || body.Loops > player.MaxBroadcastLoops {
 		return httpx.BadRequest("invalid_loops", "loops must be between 1 and %d", player.MaxBroadcastLoops)
 	}
-	c, err := a.Clips.Get(r.Context(), body.ClipID)
-	if errors.Is(err, clips.ErrNotFound) {
-		return httpx.NotFound("clip_not_found", "clip not found")
-	}
+	b, err := announce.Build(r.Context(), a.Clips, a.defaultChimeID(r.Context()), body.ClipID, body.Loops, body.ChimeID, u.ID, u.Name)
 	if err != nil {
-		return err
-	}
-	b := &player.Broadcast{ID: uuid.NewString(), ClipID: c.ID, ClipName: c.Name, ClipURL: "/api/v1/player/clips/" + c.ID + "/audio", Loops: body.Loops, ByID: u.ID, ByName: u.Name}
-	chimeID := strings.TrimSpace(body.ChimeID)
-	if chimeID == "" {
-		chimeID = a.defaultChimeID(r.Context())
-	}
-	if chimeID != "none" && c.Kind != clips.KindChime {
-		ch, err := a.Clips.Get(r.Context(), chimeID)
-		if errors.Is(err, clips.ErrNotFound) {
-			return httpx.NotFound("clip_not_found", "chime not found")
-		}
-		if err != nil {
-			return err
-		}
-		if ch.Kind != clips.KindChime {
-			return httpx.BadRequest("not_a_chime", "clip %q is not a chime", ch.Name)
-		}
-		b.ChimeURL = "/api/v1/player/clips/" + ch.ID + "/audio"
+		return announceError(err)
 	}
 	pos, err := a.Hub.SendBroadcast(b)
 	if errors.Is(err, player.ErrPlayerOffline) {
