@@ -1,23 +1,15 @@
 # Release: test, build multi-arch images, push them to GHCR, then tag the commit.
 #
-# Every push to master produces a new patch version (v0.0.1, v0.0.2, ...). Put
-# "[minor]" or "[major]" in the commit message, or run the workflow manually with
-# a bump choice, to bump those parts instead. Images are pushed BEFORE the git
-# tag is created, so a failed build never leaves a tag without images.
+# Releases are made on demand: run the workflow manually (Actions > Release >
+# Run workflow) and choose which version part to bump. Pushes to master do not
+# build or publish anything. Images are pushed BEFORE the git tag is created,
+# so a failed build never leaves a tag without images.
 #
 # Image names:  ghcr.io/<owner>/central-station-{api,web,player,tts}:<version>
 # Extra tags:   <major>.<minor>, <major>, latest
 name: Release
 
 on:
-  push:
-    branches: [master]
-    paths-ignore:
-      - "**.md"
-      - "deploy/**"
-      - ".env.example"
-      - "docker-compose*.yml"
-      - "scripts/**"
   workflow_dispatch:
     inputs:
       bump:
