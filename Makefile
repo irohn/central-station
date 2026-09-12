@@ -1,4 +1,5 @@
 GO ?= ./scripts/go.sh
+export GOFLAGS ?= -mod=readonly
 BIN := bin/api
 
 .PHONY: help tidy build test vet fmt run up down logs docker-build clean
