@@ -134,7 +134,7 @@ func run() error {
 		return err
 	}
 	hub := player.NewHub(q, logger)
-	hub.OriginPatterns = originPatterns(cfg.FrontendURL, cfg.BaseURL)
+	hub.OriginPatterns = originPatterns(append([]string{cfg.FrontendURL, cfg.BaseURL}, cfg.AllowedOrigins...)...)
 	hub.VolumeStore = settingsStore
 	if err := hub.LoadVolume(ctx); err != nil {
 		logger.Warn("load volume; using default", "err", err)
@@ -190,7 +190,7 @@ func run() error {
 
 	handler := server.New(server.Options{
 		Logger:         logger,
-		AllowedOrigins: []string{cfg.FrontendURL},
+		AllowedOrigins: append([]string{cfg.FrontendURL}, cfg.AllowedOrigins...),
 		Versions:       map[string]http.Handler{"v1": v1.Handler(deps)},
 		Ready:          ready,
 	})

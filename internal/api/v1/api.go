@@ -140,7 +140,7 @@ func Handler(d Deps) http.Handler {
 	authn := &auth.Authenticator{
 		Sessions:       d.Sessions,
 		Users:          d.Users,
-		TrustedOrigins: []string{d.Config.FrontendURL, d.Config.BaseURL},
+		TrustedOrigins: append([]string{d.Config.FrontendURL, d.Config.BaseURL}, d.Config.AllowedOrigins...),
 	}
 	// The player socket authenticates with PLAYER_TOKEN, not a user session,
 	// so it is mounted outside the session middleware.

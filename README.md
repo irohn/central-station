@@ -238,6 +238,14 @@ from the Playlists card. Tracks it produces carry `source: "playlist"` plus the
 playlist id and title. API: `POST /queue {"input": <playlist url>, "shuffle": bool}`,
 `PATCH /queue/playlists/{id} {"shuffle": bool}`, `DELETE /queue/playlists/{id}`.
 
+### Reaching the app under several names
+
+Browsers must use an origin the API knows: `FRONTEND_URL`, or any entry in
+`ALLOWED_ORIGINS` (comma-separated `scheme://host[:port]`). Those origins are
+allowed for CORS, for cookie-authenticated writes and for the live WebSocket;
+anything else loads the page but never receives live updates. Set it when the
+same deployment is reached via a LAN or Tailscale name as well.
+
 ### Email + password sign-in
 
 `AUTH_PASSWORD_ENABLED=true` adds register/sign-in forms next to Google. Passwords

@@ -20,6 +20,10 @@ type Config struct {
 	Addr        string // listen address, e.g. ":8080"
 	BaseURL     string // public URL of this API
 	FrontendURL string // origin of the web app (CORS + post-login redirect)
+	// AllowedOrigins are extra browser origins (scheme://host[:port]) allowed
+	// to call the API and open the live socket, e.g. a LAN or Tailscale name
+	// the same deployment is also reached through.
+	AllowedOrigins []string
 
 	SessionSecret string
 	SessionTTL    time.Duration
@@ -110,6 +114,7 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 		GoogleClientID:      getenv("GOOGLE_CLIENT_ID"),
 		GoogleClientSecret:  getenv("GOOGLE_CLIENT_SECRET"),
 		GoogleRedirectURL:   getenv("GOOGLE_REDIRECT_URL"),
+		AllowedOrigins:      splitList(getenv("ALLOWED_ORIGINS")),
 		AllowedEmailDomains: splitList(getenv("ALLOWED_EMAIL_DOMAINS")),
 		AllowedEmails:       splitList(getenv("ALLOWED_EMAILS")),
 		AdminEmails:         splitList(getenv("ADMIN_EMAILS")),
@@ -205,6 +210,13 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	}
 	if c.GoogleRedirectURL == "" {
 		c.GoogleRedirectURL = c.BaseURL + "/api/v1/auth/google/callback"
+	}
+	for i, o := range c.AllowedOrigins {
+		o = strings.TrimRight(strings.TrimSpace(o), "/")
+		if !strings.Contains(o, "://") {
+			return nil, fmt.Errorf("ALLOWED_ORIGINS: %q must be an origin like https://host:port", o)
+		}
+		c.AllowedOrigins[i] = o
 	}
 	for i, e := range c.AdminEmails {
 		c.AdminEmails[i] = strings.ToLower(e)

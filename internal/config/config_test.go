@@ -83,6 +83,16 @@ func TestRolePermissions(t *testing.T) {
 	}
 }
 
+func TestAllowedOrigins(t *testing.T) {
+	c, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true", "ALLOWED_ORIGINS": " http://mac.tailnet.ts.net:3000/, https://office.local "}))
+	if err != nil || len(c.AllowedOrigins) != 2 || c.AllowedOrigins[0] != "http://mac.tailnet.ts.net:3000" || c.AllowedOrigins[1] != "https://office.local" {
+		t.Fatalf("origins: %v %v", err, c.AllowedOrigins)
+	}
+	if _, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true", "ALLOWED_ORIGINS": "mac.tailnet.ts.net:3000"})); err == nil {
+		t.Fatal("origin without scheme accepted")
+	}
+}
+
 func TestAlertsTimezone(t *testing.T) {
 	c, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true"}))
 	if err != nil || c.AlertsTimezone != "Asia/Jerusalem" {
