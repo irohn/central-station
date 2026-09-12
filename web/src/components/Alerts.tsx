@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
-import type { Alert, AlertsResponse, Clip, ClipsResponse, PlayerStatus } from "../types";
+import type { Alert, AlertsResponse, Clip, ClipsResponse, ZoneSummary } from "../types";
 import { Switch } from "./Switch";
 import { Clock, Megaphone, Trash } from "./Icons";
 
@@ -42,9 +42,11 @@ function relative(iso?: string): string {
   return diff >= 0 ? `in ${unit[0]} ${unit[1]}` : `${unit[0]} ${unit[1]} ago`;
 }
 
-const empty = (tz: string) => ({ name: "", enabled: true, schedule: "0 12 * * 1-5", timezone: tz, clipId: "", loops: 1, chimeId: "" });
+const empty = (tz: string, zoneId: string) => ({ name: "", enabled: true, schedule: "0 12 * * 1-5", timezone: tz, clipId: "", loops: 1, chimeId: "", zoneId });
 
-export function Alerts({ player }: { player: PlayerStatus }) {
+export function Alerts({ zones, zoneId }: { zones: ZoneSummary[]; zoneId: string }) {
+  const anyOnline = zones.some((z) => z.player.online);
+  const zoneName = (id: string) => (id === "" ? "all zones" : zones.find((z) => z.id === id)?.name ?? "a removed zone");
   const [info, setInfo] = useState<AlertsResponse | null>(null);
   const [clips, setClips] = useState<ClipsResponse | null>(null);
   const [editing, setEditing] = useState<Partial<Alert> | null>(null);
@@ -64,7 +66,7 @@ export function Alerts({ player }: { player: PlayerStatus }) {
   const clipName = (id: string) => clips?.clips.find((c) => c.id === id)?.name ?? "(missing clip)";
 
   function startEdit(a?: Alert) {
-    const base = a ? { ...a } : empty(info?.defaultTimezone ?? "UTC");
+    const base = a ? { ...a } : empty(info?.defaultTimezone ?? "UTC", zones.length > 1 ? zoneId : "");
     setEditing(base);
     setSimple(fromCron(base.schedule ?? "") ?? (a ? null : { time: "12:00", days: [true, true, true, true, true, false, false] }));
     setError(null); setOk(null);
@@ -75,7 +77,7 @@ export function Alerts({ player }: { player: PlayerStatus }) {
     if (!editing) return;
     setBusy("save"); setError(null);
     try {
-      const body = { name: editing.name, enabled: editing.enabled, schedule: editing.schedule, timezone: editing.timezone, clipId: editing.clipId, loops: editing.loops, chimeId: editing.chimeId ?? "" };
+      const body = { name: editing.name, enabled: editing.enabled, schedule: editing.schedule, timezone: editing.timezone, clipId: editing.clipId, loops: editing.loops, chimeId: editing.chimeId ?? "", zoneId: editing.zoneId ?? "" };
       if (editing.id) await api("PATCH", `/alerts/${editing.id}`, body);
       else await api("POST", "/alerts", body);
       setEditing(null);
@@ -119,7 +121,7 @@ export function Alerts({ player }: { player: PlayerStatus }) {
                       {a.lastError && <span className="pill error" title={a.lastError}>failed</span>}
                     </div>
                     <div className="muted small"><Clock width={14} height={14} /> {describe(a.schedule)}{a.timezone !== info?.defaultTimezone ? ` (${a.timezone})` : ""}</div>
-                    <div className="muted small">Plays "{clipName(a.clipId)}"{a.loops > 1 ? ` ${a.loops}×` : ""}{a.chimeId === "none" ? ", no chime" : ""}</div>
+                    <div className="muted small">Plays "{clipName(a.clipId)}"{a.loops > 1 ? ` ${a.loops}×` : ""}{a.chimeId === "none" ? ", no chime" : ""} in {zoneName(a.zoneId ?? "")}</div>
                     <div className="muted small">
                       {a.enabled && a.nextFireAt ? `Next ${relative(a.nextFireAt)} · ${new Date(a.nextFireAt).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" })}` : "Paused"}
                       {a.lastFiredAt ? ` · last ${relative(a.lastFiredAt)}` : ""}
@@ -127,7 +129,7 @@ export function Alerts({ player }: { player: PlayerStatus }) {
                   </div>
                   <div className="alert-actions">
                     <Switch label="" checked={a.enabled} onChange={() => toggle(a)} />
-                    <button className="btn icon" type="button" title="Play now" disabled={busy !== null || !player.online} onClick={() => test(a)}><Megaphone width={16} height={16} /></button>
+                    <button className="btn icon" type="button" title="Play now" disabled={busy !== null || !anyOnline} onClick={() => test(a)}><Megaphone width={16} height={16} /></button>
                     <button className="btn icon" type="button" title="Edit" onClick={() => startEdit(a)}>✎</button>
                     <button className="btn icon danger" type="button" title="Delete" onClick={() => remove(a)}><Trash width={16} height={16} /></button>
                   </div>
@@ -199,6 +201,13 @@ export function Alerts({ player }: { player: PlayerStatus }) {
               </select>
             </label>
           </div>
+          <label className="field">
+            <span className="field-label">Zone</span>
+            <select value={editing.zoneId ?? ""} onChange={(e) => setEditing({ ...editing, zoneId: e.target.value })}>
+              <option value="">All zones</option>
+              {zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}
+            </select>
+          </label>
           <Switch label="Enabled" checked={editing.enabled ?? true} onChange={(v) => setEditing({ ...editing, enabled: v })} />
 
           <div className="row form-actions">

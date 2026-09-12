@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { api, ApiError } from "../api";
+import { ApiError } from "../api";
 import type { QueueState, User } from "../types";
+import { useZone } from "../zone";
 import { AddForm } from "./AddForm";
 
 export function QueueList({ queue, user, onAdded }: { queue: QueueState; user: User; onAdded: (q: QueueState) => void }) {
+  const { zapi } = useZone();
   const [error, setError] = useState<string | null>(null);
   const [addResult, setAddResult] = useState<{ ok?: string; error?: string } | null>(null);
   const canAdd = user.permissions.includes("queue:add");
@@ -14,7 +16,7 @@ export function QueueList({ queue, user, onAdded }: { queue: QueueState; user: U
   async function remove(id: string) {
     setError(null);
     try {
-      await api("DELETE", `/queue/${id}`);
+      await zapi("DELETE", `/queue/${id}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -22,7 +24,7 @@ export function QueueList({ queue, user, onAdded }: { queue: QueueState; user: U
   async function move(id: string, position: number) {
     setError(null);
     try {
-      await api("PATCH", `/queue/${id}`, { position });
+      await zapi("PATCH", `/queue/${id}`, { position });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }

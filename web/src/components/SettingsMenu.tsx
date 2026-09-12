@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PlayerStatus, User } from "../types";
 import type { Theme } from "../theme";
-import { Clock, Gear, KeyIcon, ListMusic, LogOut, Megaphone, Moon, Radio, Sun, UsersIcon, X } from "./Icons";
+import { Clock, Gear, KeyIcon, ListMusic, LogOut, Megaphone, Moon, Radio, Speaker, Sun, UsersIcon, X } from "./Icons";
 
-export type MenuView = "fallback" | "users" | "broadcast" | "alerts" | "account";
+export type MenuView = "fallback" | "users" | "broadcast" | "alerts" | "account" | "zones";
 
-export function SettingsMenu({ user, player, connected, theme, onToggleTheme, onNavigate, onLogout }: {
+export function SettingsMenu({ user, player, zoneName, connected, theme, onToggleTheme, onNavigate, onLogout }: {
   user: User;
   player: PlayerStatus;
+  zoneName: string;
   connected: boolean;
   theme: Theme;
   onToggleTheme: () => void;
@@ -20,6 +21,7 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
   const canBroadcast = user.permissions.includes("broadcast:send");
   const canAlerts = user.permissions.includes("alerts:manage");
   const isAdmin = user.permissions.includes("users:manage");
+  const canZones = user.permissions.includes("integrations:manage");
 
   useEffect(() => {
     if (!open) return;
@@ -38,7 +40,7 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
   const health = !connected ? "warn" : player.online ? "on" : "off";
   const healthText = !connected
     ? "Reconnecting to server…"
-    : player.online ? `Player online${player.name ? ` · ${player.name}` : ""}` : "No player connected";
+    : player.online ? `${zoneName}: player online${player.name ? ` · ${player.name}` : ""}` : `${zoneName}: no player connected`;
 
   return (
     <div className="menu-root">
@@ -81,7 +83,7 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
               <Radio className="muted" />
             </div>
 
-            {(canManageFallback || isAdmin || canBroadcast || canAlerts) && (
+            {(canManageFallback || isAdmin || canBroadcast || canAlerts || canZones) && (
               <div className="menu-section">
                 {canBroadcast && (
                   <button className="menu-item" role="menuitem" onClick={() => go("broadcast")}>
@@ -101,6 +103,11 @@ export function SettingsMenu({ user, player, connected, theme, onToggleTheme, on
                 {isAdmin && (
                   <button className="menu-item" role="menuitem" onClick={() => go("users")}>
                     <UsersIcon /> <span>Users</span>
+                  </button>
+                )}
+                {canZones && (
+                  <button className="menu-item" role="menuitem" onClick={() => go("zones")}>
+                    <Speaker /> <span>Zones</span>
                   </button>
                 )}
               </div>

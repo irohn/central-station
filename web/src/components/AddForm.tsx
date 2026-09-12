@@ -1,9 +1,11 @@
 import { useState } from "react";
-import { api, ApiError } from "../api";
+import { ApiError } from "../api";
 import type { QueuedPlaylist, QueueItem, QueueState } from "../types";
+import { useZone } from "../zone";
 
 /** Inline "paste a link or search" form; lives in the Up next header. */
 export function AddForm({ onAdded, onResult }: { onAdded: (q: QueueState) => void; onResult: (msg: { ok?: string; error?: string } | null) => void }) {
+  const { zapi } = useZone();
   const [input, setInput] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -13,7 +15,7 @@ export function AddForm({ onAdded, onResult }: { onAdded: (q: QueueState) => voi
     setBusy(true);
     onResult(null);
     try {
-      const res = await api<{ kind: "track" | "playlist"; item?: QueueItem; playlist?: QueuedPlaylist; queue: QueueState }>("POST", "/queue", { input: input.trim() });
+      const res = await zapi<{ kind: "track" | "playlist"; item?: QueueItem; playlist?: QueuedPlaylist; queue: QueueState }>("POST", "/queue", { input: input.trim() });
       onAdded(res.queue);
       onResult({
         ok: res.kind === "playlist" && res.playlist

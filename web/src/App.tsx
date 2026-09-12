@@ -1,7 +1,10 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api, ApiError } from "./api";
-import type { User } from "./types";
+import type { User, ZoneSummary } from "./types";
 import { useLive } from "./useLive";
+import { ZoneProvider, readStoredZone, storeZone } from "./zone";
+import { ZoneSwitcher } from "./components/ZoneSwitcher";
+import { ZonesPage } from "./components/ZonesPage";
 import { Login } from "./components/Login";
 import { NowPlaying } from "./components/NowPlaying";
 import { QueueList } from "./components/QueueList";
@@ -19,14 +22,21 @@ import { ThemeToggle } from "./components/ThemeToggle";
 import { ChevronLeft } from "./components/Icons";
 import { useTheme } from "./theme";
 
-type View = "queue" | "history" | "users" | "fallback" | "broadcast" | "alerts" | "account";
+type View = "queue" | "history" | "users" | "fallback" | "broadcast" | "alerts" | "account" | "zones";
 
-const subpageTitles: Record<"users" | "fallback" | "broadcast" | "alerts" | "account", string> = { users: "Users", fallback: "Default playlist", broadcast: "Broadcast", alerts: "Alerts", account: "Account" };
+const subpageTitles: Record<"users" | "fallback" | "broadcast" | "alerts" | "account" | "zones", string> = { users: "Users", fallback: "Default playlist", broadcast: "Broadcast", alerts: "Alerts", account: "Account", zones: "Zones" };
 
 export default function App() {
   const [user, setUser] = useState<User | null | undefined>(undefined);
   const [requestedView, setView] = useState<View>("queue");
-  const { queue, player, connected, setQueue } = useLive(!!user);
+  const [zones, setZones] = useState<ZoneSummary[] | null>(null);
+  const [wantedZone, setWantedZone] = useState<string>(readStoredZone);
+  // The zone shown: the remembered one if it still exists, else the default, else the first.
+  const zoneId = zones?.find((z) => z.id === wantedZone)?.id ?? zones?.find((z) => z.isDefault)?.id ?? zones?.[0]?.id ?? "";
+  const zone = zones?.find((z) => z.id === zoneId);
+  const onZones = useCallback((z: ZoneSummary[]) => setZones(z), []);
+  const { queue, player, connected, setQueue } = useLive(!!user && !!zoneId, zoneId, onZones);
+  const selectZone = (id: string) => { setWantedZone(id); storeZone(id); };
   const [theme, toggleTheme] = useTheme();
   const [methods, setMethods] = useState<AuthMethods | null>(null);
   const [resent, setResent] = useState<string | null>(null);
@@ -41,6 +51,11 @@ export default function App() {
     api<AuthMethods>("GET", "/auth/methods").then(setMethods).catch(() => {});
   }, []);
 
+  useEffect(() => {
+    if (!user) return;
+    api<{ zones: ZoneSummary[] }>("GET", "/zones").then((r) => setZones(r.zones)).catch(() => setZones([]));
+  }, [user]);
+
   async function resendVerification() {
     try {
       await api("POST", "/auth/verify/resend");
@@ -53,6 +68,7 @@ export default function App() {
   async function logout() {
     await api("POST", "/auth/logout").catch(() => {});
     setUser(null);
+    setZones(null);
     setView("queue");
   }
 
@@ -70,19 +86,25 @@ export default function App() {
   const canManageFallback = user.permissions.includes("fallback:manage");
   const canBroadcast = user.permissions.includes("broadcast:send");
   const canAlerts = user.permissions.includes("alerts:manage");
+  const canZones = user.permissions.includes("integrations:manage");
   // Fall back to the queue when the role cannot use the requested page (e.g. after a role change).
   const view: View =
-    (requestedView === "users" && !isAdmin) || (requestedView === "fallback" && !canManageFallback) || (requestedView === "broadcast" && !canBroadcast) || (requestedView === "alerts" && !canAlerts)
+    (requestedView === "users" && !isAdmin) || (requestedView === "fallback" && !canManageFallback) || (requestedView === "broadcast" && !canBroadcast) || (requestedView === "alerts" && !canAlerts) || (requestedView === "zones" && !canZones)
       ? "queue" : requestedView;
   const subpage = view !== "queue" && view !== "history";
 
+  if (!zones) return <div className="center muted">Loading…</div>;
+  if (!zoneId) return <div className="center muted">No zones are configured. Ask an admin to add one.</div>;
+
   return (
+    <ZoneProvider zoneId={zoneId}>
     <div className="app">
       <header className="topbar">
         <nav className="tabs" aria-label="Main">
           <button className={view === "queue" ? "active" : ""} onClick={() => setView("queue")}>Queue</button>
           <button className={view === "history" ? "active" : ""} onClick={() => setView("history")}>History</button>
         </nav>
+        <ZoneSwitcher zones={zones} zoneId={zoneId} onSelect={selectZone} onManage={canZones ? () => setView("zones") : undefined} />
         <div className="topbar-right">
           <div className="user" title={`${user.name} · ${user.role}`}>
             {user.pictureUrl ? <img src={user.pictureUrl} alt="" className="avatar" /> : <span className="avatar initial">{user.name.slice(0, 1)}</span>}
@@ -91,6 +113,7 @@ export default function App() {
           <SettingsMenu
             user={user}
             player={player}
+            zoneName={zone?.name ?? "Zone"}
             connected={connected}
             theme={theme}
             onToggleTheme={toggleTheme}
@@ -119,7 +142,7 @@ export default function App() {
         {subpage && (
           <div className="subpage-head">
             <button className="btn icon back" onClick={() => setView("queue")} aria-label="Back to queue"><ChevronLeft /></button>
-            <h1>{subpageTitles[view]}</h1>
+            <h1>{subpageTitles[view]}{view === "fallback" || view === "broadcast" ? <span className="muted"> · {zone?.name}</span> : null}</h1>
           </div>
         )}
 
@@ -134,10 +157,12 @@ export default function App() {
         {view === "history" && <History version={queue?.updatedAt ?? ""} />}
         {view === "users" && isAdmin && <Users me={user} />}
         {view === "fallback" && canManageFallback && <FallbackSettings user={user} />}
-        {view === "broadcast" && canBroadcast && <Broadcast user={user} player={player} />}
-        {view === "alerts" && canAlerts && <Alerts player={player} />}
+        {view === "broadcast" && canBroadcast && <Broadcast user={user} player={player} zones={zones} />}
+        {view === "alerts" && canAlerts && <Alerts zones={zones} zoneId={zoneId} />}
+        {view === "zones" && canZones && <ZonesPage zones={zones} zoneId={zoneId} onSelect={selectZone} />}
         {view === "account" && <Account user={user} />}
       </main>
     </div>
+    </ZoneProvider>
   );
 }

@@ -426,9 +426,13 @@ func announceError(err error) error {
 }
 
 // GET /broadcasts
-func (a *api) getBroadcasts(w http.ResponseWriter, _ *http.Request) error {
-	cur, queued := a.Hub.Broadcasts()
-	httpx.JSON(w, http.StatusOK, map[string]any{"current": cur, "queued": queued})
+func (a *api) getBroadcasts(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
+	cur, queued := rt.Hub.Broadcasts()
+	httpx.JSON(w, http.StatusOK, map[string]any{"current": cur, "queued": queued, "zoneId": rt.Zone.ID})
 	return nil
 }
 
@@ -437,11 +441,17 @@ func (a *api) sendBroadcast(w http.ResponseWriter, r *http.Request) error {
 	if err := a.requireClips(); err != nil {
 		return err
 	}
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
 	u := auth.MustUser(r)
 	var body struct {
 		ClipID  string `json:"clipId"`
 		Loops   int    `json:"loops"`
 		ChimeID string `json:"chimeId"`
+		// AllZones sends the announcement to every zone instead of this one.
+		AllZones bool `json:"allZones"`
 	}
 	if err := httpx.Decode(r, &body, false); err != nil {
 		return err
@@ -456,14 +466,30 @@ func (a *api) sendBroadcast(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return announceError(err)
 	}
-	pos, err := a.Hub.SendBroadcast(b)
+	if body.AllZones {
+		delivered, err := a.Zones.SendBroadcast("", b)
+		if errors.Is(err, player.ErrPlayerOffline) {
+			return httpx.Conflict("player_offline", "no player is connected in any zone, so nothing would be heard")
+		}
+		if err != nil {
+			return err
+		}
+		names := make([]string, 0, len(delivered))
+		for _, d := range delivered {
+			names = append(names, d.Zone.Name)
+		}
+		cur, queued := rt.Hub.Broadcasts()
+		httpx.JSON(w, http.StatusAccepted, map[string]any{"id": b.ID, "position": 0, "current": cur, "queued": queued, "zones": names})
+		return nil
+	}
+	pos, err := rt.Hub.SendBroadcast(b)
 	if errors.Is(err, player.ErrPlayerOffline) {
-		return httpx.Conflict("player_offline", "no player is connected, so nothing would be heard")
+		return httpx.Conflict("player_offline", "no player is connected in this zone, so nothing would be heard")
 	}
 	if err != nil {
 		return err
 	}
-	cur, queued := a.Hub.Broadcasts()
-	httpx.JSON(w, http.StatusAccepted, map[string]any{"id": b.ID, "position": pos, "current": cur, "queued": queued})
+	cur, queued := rt.Hub.Broadcasts()
+	httpx.JSON(w, http.StatusAccepted, map[string]any{"id": b.ID, "position": pos, "current": cur, "queued": queued, "zones": []string{rt.Zone.Name}})
 	return nil
 }

@@ -98,3 +98,23 @@ export const ExternalLink = (p: SVGProps<SVGSVGElement>) => (
     <path d="M15 3h6v6" /><path d="M10 14 21 3" /><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
   </svg>
 );
+
+export const Speaker = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect width="16" height="20" x="4" y="2" rx="2" /><path d="M12 6h.01" /><circle cx="12" cy="14" r="4" /><path d="M12 14h.01" />
+  </svg>
+);
+export const ChevronDown = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="m6 9 6 6 6-6" /></svg>
+);
+export const Copy = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <rect width="14" height="14" x="8" y="8" rx="2" ry="2" /><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+  </svg>
+);
+export const Check = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M20 6 9 17l-5-5" /></svg>
+);
+export const Plus = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><path d="M5 12h14" /><path d="M12 5v14" /></svg>
+);

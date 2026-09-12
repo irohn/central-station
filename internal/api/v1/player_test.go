@@ -59,11 +59,16 @@ func readEvent(t *testing.T, c *websocket.Conn) player.Event {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var e player.Event
-	if err := wsjson.Read(ctx, c, &e); err != nil {
-		t.Fatalf("read event: %v", err)
+	for {
+		var e player.Event
+		if err := wsjson.Read(ctx, c, &e); err != nil {
+			t.Fatalf("read event: %v", err)
+		}
+		if e.Type == "zones" {
+			continue // zone summaries interleave with the per-zone stream
+		}
+		return e
 	}
-	return e
 }
 
 func TestPlayerSocketAuth(t *testing.T) {

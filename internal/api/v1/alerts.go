@@ -14,6 +14,7 @@ import (
 	"central-station/internal/clips"
 	"central-station/internal/httpx"
 	"central-station/internal/player"
+	"central-station/internal/zone"
 )
 
 func (a *api) requireAlerts() error {
@@ -63,6 +64,7 @@ type alertInput struct {
 	ClipID   *string `json:"clipId"`
 	Loops    *int    `json:"loops"`
 	ChimeID  *string `json:"chimeId"`
+	ZoneID   *string `json:"zoneId"` // "" = every zone
 }
 
 func (in *alertInput) apply(al *alerts.Alert) {
@@ -90,10 +92,18 @@ func (in *alertInput) apply(al *alerts.Alert) {
 	if in.ChimeID != nil {
 		al.ChimeID = *in.ChimeID
 	}
+	if in.ZoneID != nil {
+		al.ZoneID = strings.TrimSpace(*in.ZoneID)
+	}
 }
 
-// checkRefs validates the clip and chime references.
+// checkRefs validates the clip, chime and zone references.
 func (a *api) checkAlertRefs(r *http.Request, al *alerts.Alert) error {
+	if al.ZoneID != "" {
+		if _, ok := a.Zones.Get(al.ZoneID); !ok {
+			return httpx.NotFound("zone_not_found", "zone %s not found", al.ZoneID)
+		}
+	}
 	if _, err := a.Clips.Get(r.Context(), al.ClipID); errors.Is(err, clips.ErrNotFound) {
 		return httpx.NotFound("clip_not_found", "clip %s not found", al.ClipID)
 	} else if err != nil {
@@ -208,13 +218,20 @@ func (a *api) testAlert(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return announceError(err)
 	}
-	pos, err := a.Hub.SendBroadcast(b)
+	delivered, err := a.Zones.SendBroadcast(al.ZoneID, b)
 	if errors.Is(err, player.ErrPlayerOffline) {
 		return httpx.Conflict("player_offline", "no player is connected, so nothing would be heard")
+	}
+	if errors.Is(err, zone.ErrNotFound) {
+		return httpx.NotFound("zone_not_found", "the alert's zone no longer exists")
 	}
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusAccepted, map[string]any{"id": b.ID, "position": pos})
+	names := make([]string, 0, len(delivered))
+	for _, d := range delivered {
+		names = append(names, d.Zone.Name)
+	}
+	httpx.JSON(w, http.StatusAccepted, map[string]any{"id": b.ID, "zones": names})
 	return nil
 }

@@ -1,12 +1,13 @@
 import { useEffect, useState } from "react";
-import { api } from "../api";
 import type { HistoryEntry } from "../types";
+import { useZone } from "../zone";
 
 export function History({ version }: { version: string }) {
+  const { zoneId, zapi } = useZone();
   const [entries, setEntries] = useState<HistoryEntry[]>([]);
   useEffect(() => {
-    api<{ entries: HistoryEntry[] }>("GET", "/history?limit=100").then((r) => setEntries(r.entries)).catch(() => {});
-  }, [version]);
+    zapi<{ entries: HistoryEntry[] }>("GET", "/history?limit=100").then((r) => setEntries(r.entries)).catch(() => {});
+  }, [version, zoneId, zapi]);
 
   return (
     <section className="card">

@@ -172,6 +172,8 @@ export interface Alert {
   clipId: string;
   loops: number;
   chimeId: string;
+  /** "" = every zone. */
+  zoneId: string;
   createdById?: string;
   createdByName?: string;
   createdAt: string;
@@ -202,10 +204,34 @@ export interface ClipsResponse {
   maxTextChars: number;
 }
 
+/** A zone: one player node with its own queue. */
+export interface Zone {
+  id: string;
+  name: string;
+  position: number;
+  hasToken: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** GET /zones entry and "zones" event element. */
+export interface ZoneSummary {
+  id: string;
+  name: string;
+  position: number;
+  hasToken: boolean;
+  status: PlaybackStatus;
+  current: QueueItem | null;
+  queued: number;
+  player: PlayerStatus;
+  isDefault: boolean;
+}
+
 export interface LiveEvent {
-  type: "queue" | "progress" | "player";
+  type: "queue" | "progress" | "player" | "zones";
   queue?: QueueState;
   player?: PlayerStatus;
+  zones?: ZoneSummary[];
 }
 
 export interface AuthMethods {

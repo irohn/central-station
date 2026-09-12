@@ -58,6 +58,9 @@ services:
     restart: unless-stopped
     networks: [central]   # internal only
 
+  # Player for the default zone. For another room or site, run a second copy of
+  # this image on the machine wired to those speakers with the token that the
+  # Zones page issues (PLAYER_TOKEN) and API_URL pointing at this API.
   player:
     build:
       context: .

@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { api, ApiError } from "../api";
+import { ApiError } from "../api";
 import type { QueuedPlaylist, QueueState, User } from "../types";
+import { useZone } from "../zone";
 import { ListMusic, Shuffle, X } from "./Icons";
 
 /**
@@ -9,6 +10,7 @@ import { ListMusic, Shuffle, X } from "./Icons";
  * nothing else is left.
  */
 export function PlaylistsCard({ queue, user, onManage }: { queue: QueueState; user: User; onManage: () => void }) {
+  const { zapi } = useZone();
   const [error, setError] = useState<string | null>(null);
   const fb = queue.fallback;
   const canManageFallback = user.permissions.includes("fallback:manage");
@@ -23,7 +25,7 @@ export function PlaylistsCard({ queue, user, onManage }: { queue: QueueState; us
   async function toggleShuffle(p: QueuedPlaylist) {
     setError(null);
     try {
-      await api("PATCH", `/queue/playlists/${p.id}`, { shuffle: !p.shuffle });
+      await zapi("PATCH", `/queue/playlists/${p.id}`, { shuffle: !p.shuffle });
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
@@ -31,7 +33,7 @@ export function PlaylistsCard({ queue, user, onManage }: { queue: QueueState; us
   async function remove(p: QueuedPlaylist) {
     setError(null);
     try {
-      await api("DELETE", `/queue/playlists/${p.id}`);
+      await zapi("DELETE", `/queue/playlists/${p.id}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     }
