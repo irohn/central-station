@@ -44,6 +44,7 @@ const (
 	AlertsManage      Permission = "alerts:manage"       // schedule announcements
 	QueueReorder      Permission = "queue:reorder"
 	PlaybackControl   Permission = "playback:control" // skip, pause, resume, override
+	OutputControl     Permission = "output:control"   // choose which speakers a zone's player uses
 	FallbackManage    Permission = "fallback:manage"  // configure the default playlist
 
 	// Admin.
@@ -64,7 +65,7 @@ var roleLevel = map[Role]int{
 var AllPermissions = []Permission{
 	QueueRead, HistoryRead, TrackResolve,
 	QueueAdd, QueueRemoveOwn, PlaylistWrite, VolumeControl,
-	QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage, PlaylistRemoveAny, BroadcastSend, AlertsManage,
+	QueueRemoveAny, QueueReorder, PlaybackControl, OutputControl, FallbackManage, PlaylistRemoveAny, BroadcastSend, AlertsManage,
 	SettingsManage, UsersManage, IntegrationsManage,
 }
 
@@ -72,7 +73,7 @@ var AllPermissions = []Permission{
 var DefaultGrants = map[Role][]Permission{
 	RoleListener:     {QueueRead, HistoryRead, TrackResolve},
 	RoleCollaborator: {QueueAdd, QueueRemoveOwn, PlaylistWrite, VolumeControl},
-	RoleManager:      {QueueRemoveAny, QueueReorder, PlaybackControl, FallbackManage, PlaylistRemoveAny, BroadcastSend, AlertsManage},
+	RoleManager:      {QueueRemoveAny, QueueReorder, PlaybackControl, OutputControl, FallbackManage, PlaylistRemoveAny, BroadcastSend, AlertsManage},
 	RoleAdmin:        {SettingsManage, UsersManage, IntegrationsManage},
 }
 

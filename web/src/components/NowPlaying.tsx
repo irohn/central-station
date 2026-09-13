@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, fmtTime } from "../api";
 import type { PlayerStatus, QueueState, User } from "../types";
 import { useZone } from "../zone";
-import { ListMusic, Volume } from "./Icons";
+import { ListMusic, Speaker, Volume } from "./Icons";
 
 /** Volume row: slider for managers, read-only level for everyone else. */
 function VolumeRow({ player, canControl }: { player: PlayerStatus; canControl: boolean }) {
@@ -50,6 +50,54 @@ function VolumeRow({ player, canControl }: { player: PlayerStatus; canControl: b
         <div className="progress volume-bar" title={`Volume ${level}%`}><div className="bar" style={{ width: `${level}%` }} /></div>
       )}
       <span className="muted small volume-value">{level}%</span>
+      {error && <span className="error small">{error}</span>}
+    </div>
+  );
+}
+
+/** Output row: which speakers the zone's player uses. Select for managers, read-only otherwise. */
+function OutputRow({ player, canControl }: { player: PlayerStatus; canControl: boolean }) {
+  const { zapi } = useZone();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const devices = player.audioDevices ?? [];
+  const requested = player.audioDevice || "auto";
+  const active = player.activeAudioDevice || "auto";
+  const nameOf = (id: string) => (id === "auto" ? "System default" : devices.find((d) => d.id === id)?.name ?? id);
+  // Keep a requested-but-missing device selectable so the choice stays visible.
+  const options = requested !== "auto" && !devices.some((d) => d.id === requested) ? [...devices, { id: requested, name: `${requested} (not found)` }] : devices;
+
+  async function change(id: string) {
+    setBusy(true);
+    setError(null);
+    try {
+      await zapi("POST", "/playback/output", { device: id });
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (!player.online && devices.length === 0 && requested === "auto") return null;
+
+  return (
+    <div className="output">
+      <Speaker className="muted" />
+      {canControl ? (
+        <select aria-label="Output device" value={requested} disabled={busy || !player.online} onChange={(e) => change(e.target.value)}>
+          <option value="auto">System default</option>
+          {options.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+        </select>
+      ) : (
+        <span className="output-name ellipsis" title={nameOf(active)}>{nameOf(requested)}</span>
+      )}
+      {player.audioDeviceMissing && (
+        <span className="warn small" title={`"${nameOf(requested)}" is not connected; playing on the default output.`}>not found, using default</span>
+      )}
+      {!player.audioDeviceMissing && requested === "auto" && active !== "auto" && (
+        <span className="muted small ellipsis" title={active}>→ {nameOf(active)}</span>
+      )}
       {error && <span className="error small">{error}</span>}
     </div>
   );
@@ -117,6 +165,7 @@ export function NowPlaying({ queue, player, user }: { queue: QueueState; player:
         </div>
       )}
       <VolumeRow player={player} canControl={user.permissions.includes("volume:control")} />
+      <OutputRow player={player} canControl={user.permissions.includes("output:control")} />
       {canControl && cur && (
         <div className="row controls">
           {queue.status === "paused" ? (

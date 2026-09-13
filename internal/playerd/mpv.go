@@ -100,7 +100,7 @@ func StartMPV(ctx context.Context, logger *slog.Logger, socketPath string, extra
 	}()
 
 	// Observe the properties we care about.
-	for i, p := range []string{"time-pos", "duration", "pause", "idle-active"} {
+	for i, p := range []string{"time-pos", "duration", "pause", "idle-active", "audio-device-list", "audio-device"} {
 		if _, err := m.Command(ctx, "observe_property", i+1, p); err != nil {
 			return nil, fmt.Errorf("observe %s: %w", p, err)
 		}
@@ -226,6 +226,45 @@ func (m *MPV) GetFloat(ctx context.Context, prop string) float64 {
 	var f float64
 	_ = json.Unmarshal(data, &f)
 	return f
+}
+
+// AudioDevice is one entry of mpv's audio-device-list.
+type AudioDevice struct {
+	Name        string `json:"name"`        // id, e.g. "pulse/alsa_output.usb-…" or "auto"
+	Description string `json:"description"` // human-readable
+}
+
+// Devices returns the outputs mpv currently sees.
+func (m *MPV) Devices(ctx context.Context) ([]AudioDevice, error) {
+	data, err := m.Command(ctx, "get_property", "audio-device-list")
+	if err != nil {
+		return nil, err
+	}
+	var list []AudioDevice
+	if err := json.Unmarshal(data, &list); err != nil {
+		return nil, fmt.Errorf("decode audio-device-list: %w", err)
+	}
+	return list, nil
+}
+
+// SetAudioDevice switches the output; mpv reopens the audio output in place.
+func (m *MPV) SetAudioDevice(ctx context.Context, id string) error {
+	if id == "" {
+		id = "auto"
+	}
+	_, err := m.Command(ctx, "set_property", "audio-device", id)
+	return err
+}
+
+// GetString reads a string property ("" if unavailable).
+func (m *MPV) GetString(ctx context.Context, prop string) string {
+	data, err := m.Command(ctx, "get_property", prop)
+	if err != nil {
+		return ""
+	}
+	var s string
+	_ = json.Unmarshal(data, &s)
+	return s
 }
 
 // Close terminates mpv.

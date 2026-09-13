@@ -115,6 +115,14 @@ export function ZonesPage({ zones, zoneId, onSelect }: { zones: ZoneSummary[]; z
                   {z.player.online ? `Player online${z.player.name ? ` · ${z.player.name}` : ""}` : "No player connected"}
                   {" · "}{z.current ? `${z.status}: ${z.current.track.title}` : "idle"}{z.queued > 0 ? ` · ${z.queued} queued` : ""}
                 </div>
+                {z.player.online && (
+                  <div className="muted small ellipsis">
+                    Output: {z.player.audioDevice === "auto"
+                      ? `System default${z.player.activeAudioDevice && z.player.activeAudioDevice !== "auto" ? ` (${z.player.audioDevices.find((d) => d.id === z.player.activeAudioDevice)?.name ?? z.player.activeAudioDevice})` : ""}`
+                      : z.player.audioDevices.find((d) => d.id === z.player.audioDevice)?.name ?? z.player.audioDevice}
+                    {z.player.audioDeviceMissing ? " · not found, using default" : ""}
+                  </div>
+                )}
                 <div className="muted small">
                   {z.hasToken ? "Player token issued" : z.isDefault ? "Uses PLAYER_TOKEN from the server environment (issue a token to switch)" : "No player token yet"}
                 </div>

@@ -20,10 +20,17 @@ import (
 // DefaultVolume is used until a manager sets one.
 const DefaultVolume = 80
 
-const volumeKey = "volume"
+const (
+	volumeKey = "volume"
+	outputKey = "audio-device"
+)
 
 // ErrBadVolume is returned for levels outside 0-100.
 var ErrBadVolume = errors.New("volume must be between 0 and 100")
+
+// ErrUnknownDevice is returned when the requested output is not one the
+// connected player reported.
+var ErrUnknownDevice = errors.New("unknown audio device")
 
 // ErrPlayerOffline is returned when an announcement cannot be delivered.
 var ErrPlayerOffline = errors.New("no player is connected")
@@ -66,14 +73,15 @@ type Hub struct {
 	// disconnect, hello, volume, announcements. Progress ticks do not fire it.
 	OnStatusChange func()
 
-	mu         sync.Mutex
-	player     *websocket.Conn
-	status     Status
-	volume     int
-	spectators map[*websocket.Conn]struct{}
-	active     *Broadcast
-	activeAt   time.Time
-	pending    []*Broadcast
+	mu          sync.Mutex
+	player      *websocket.Conn
+	status      Status
+	volume      int
+	audioDevice string // requested output; "auto" = OS default
+	spectators  map[*websocket.Conn]struct{}
+	active      *Broadcast
+	activeAt    time.Time
+	pending     []*Broadcast
 }
 
 // SendBroadcast queues an announcement; it starts at once when none is
@@ -141,8 +149,10 @@ func NewHub(q *queue.Service, logger *slog.Logger) *Hub {
 	if logger == nil {
 		logger = slog.Default()
 	}
-	h := &Hub{queue: q, logger: logger, volume: DefaultVolume, spectators: map[*websocket.Conn]struct{}{}}
+	h := &Hub{queue: q, logger: logger, volume: DefaultVolume, audioDevice: AutoDevice, spectators: map[*websocket.Conn]struct{}{}}
 	h.status.Volume = DefaultVolume
+	h.status.AudioDevice = AutoDevice
+	h.status.AudioDevices = []AudioDevice{}
 	q.OnChange = h.QueueChanged
 	return h
 }
@@ -184,26 +194,89 @@ func (h *Hub) Close() {
 	}
 }
 
-// LoadVolume reads the persisted volume from VolumeStore, if any.
+// LoadVolume reads the persisted volume and output device from VolumeStore, if any.
 func (h *Hub) LoadVolume(ctx context.Context) error {
 	if h.VolumeStore == nil {
 		return nil
 	}
 	raw, err := h.VolumeStore.Get(ctx, volumeKey)
-	if errors.Is(err, settings.ErrNotFound) {
-		return nil
-	}
-	if err != nil {
+	switch {
+	case errors.Is(err, settings.ErrNotFound):
+	case err != nil:
 		return err
+	default:
+		var v int
+		if err := json.Unmarshal(raw, &v); err != nil || v < 0 || v > 100 {
+			return fmt.Errorf("stored volume %q is invalid", string(raw))
+		}
+		h.mu.Lock()
+		h.volume = v
+		h.status.Volume = v
+		h.mu.Unlock()
 	}
-	var v int
-	if err := json.Unmarshal(raw, &v); err != nil || v < 0 || v > 100 {
-		return fmt.Errorf("stored volume %q is invalid", string(raw))
+	raw, err = h.VolumeStore.Get(ctx, outputKey)
+	switch {
+	case errors.Is(err, settings.ErrNotFound):
+	case err != nil:
+		return err
+	default:
+		var d string
+		if err := json.Unmarshal(raw, &d); err != nil {
+			return fmt.Errorf("stored audio device %q is invalid", string(raw))
+		}
+		if d == "" {
+			d = AutoDevice
+		}
+		h.mu.Lock()
+		h.audioDevice = d
+		h.status.AudioDevice = d
+		h.mu.Unlock()
+	}
+	return nil
+}
+
+// AudioDevice returns the requested output id.
+func (h *Hub) AudioDevice() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.audioDevice
+}
+
+// SetAudioDevice selects the output. id must be AutoDevice or one of the
+// devices the connected player reported; with no player connected any id is
+// accepted and validated when one connects. The choice is persisted.
+func (h *Hub) SetAudioDevice(ctx context.Context, id string) error {
+	if id == "" {
+		id = AutoDevice
 	}
 	h.mu.Lock()
-	h.volume = v
-	h.status.Volume = v
+	known := id == AutoDevice || len(h.status.AudioDevices) == 0
+	for _, d := range h.status.AudioDevices {
+		if d.ID == id {
+			known = true
+			break
+		}
+	}
 	h.mu.Unlock()
+	if !known {
+		return fmt.Errorf("%w: %q", ErrUnknownDevice, id)
+	}
+	if h.VolumeStore != nil {
+		raw, _ := json.Marshal(id)
+		if err := h.VolumeStore.Set(ctx, outputKey, raw); err != nil {
+			return err
+		}
+	}
+	h.mu.Lock()
+	h.audioDevice = id
+	h.status.AudioDevice = id
+	h.status.AudioDeviceMissing = false // the player re-reports after applying
+	p := h.player
+	h.mu.Unlock()
+	if p != nil {
+		h.send(p, ServerMessage{Type: "state", State: h.desired()})
+	}
+	h.broadcastPlayer()
 	return nil
 }
 
@@ -245,7 +318,7 @@ func (h *Hub) Status() Status {
 
 func (h *Hub) desired() *DesiredState {
 	s := h.queue.Snapshot()
-	return &DesiredState{Status: s.Status, Current: s.Current, Volume: h.Volume()}
+	return &DesiredState{Status: s.Status, Current: s.Current, Volume: h.Volume(), AudioDevice: h.AudioDevice()}
 }
 
 // onQueueChange pushes the desired state to the player and the snapshot to browsers.
@@ -294,7 +367,7 @@ func (h *Hub) ServePlayer(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	old := h.player
 	h.player = c
-	h.status = Status{Online: true, ConnectedAt: time.Now(), LastSeenAt: time.Now(), Volume: h.volume}
+	h.status = Status{Online: true, ConnectedAt: time.Now(), LastSeenAt: time.Now(), Volume: h.volume, AudioDevice: h.audioDevice, AudioDevices: []AudioDevice{}}
 	h.mu.Unlock()
 	if old != nil {
 		h.logger.Info("player replaced by a new connection")
@@ -310,7 +383,7 @@ func (h *Hub) ServePlayer(w http.ResponseWriter, r *http.Request) {
 		if h.player == c {
 			h.player = nil
 			h.active = nil // whatever was playing died with the connection; queued ones wait
-			h.status = Status{Online: false, LastSeenAt: time.Now(), LastError: h.status.LastError, Volume: h.volume, BroadcastsQueued: len(h.pending)}
+			h.status = Status{Online: false, LastSeenAt: time.Now(), LastError: h.status.LastError, Volume: h.volume, BroadcastsQueued: len(h.pending), AudioDevice: h.audioDevice, AudioDevices: []AudioDevice{}}
 		}
 		h.mu.Unlock()
 		c.Close(websocket.StatusNormalClosure, "")
@@ -344,6 +417,16 @@ func (h *Hub) handlePlayerMessage(c *websocket.Conn, msg ClientMessage) {
 	case "hello":
 		h.status.Name = msg.Name
 		h.status.Version = msg.Version
+		h.mu.Unlock()
+		h.broadcastPlayer()
+		return
+	case "devices":
+		h.status.AudioDevices = msg.Devices
+		if h.status.AudioDevices == nil {
+			h.status.AudioDevices = []AudioDevice{}
+		}
+		h.status.ActiveAudioDevice = msg.ActiveDevice
+		h.status.AudioDeviceMissing = msg.DeviceMissing
 		h.mu.Unlock()
 		h.broadcastPlayer()
 		return

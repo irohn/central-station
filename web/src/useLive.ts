@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api, eventsWsUrl } from "./api";
 import type { LiveEvent, PlayerStatus, QueueState, ZoneSummary } from "./types";
 
-const emptyPlayer: PlayerStatus = { online: false, positionSeconds: 0, durationSeconds: 0, volume: 80, broadcastsQueued: 0 };
+const emptyPlayer: PlayerStatus = { online: false, positionSeconds: 0, durationSeconds: 0, volume: 80, broadcastsQueued: 0, audioDevice: "auto", audioDevices: [] };
 
 /**
  * Keeps one zone's queue + player state in sync over that zone's events

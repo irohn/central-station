@@ -3,7 +3,7 @@ export type Role = "listener" | "collaborator" | "manager" | "admin";
 export type Permission =
   | "queue:read" | "history:read" | "track:resolve"
   | "queue:add" | "queue:remove_own" | "playlist:write" | "volume:control"
-  | "queue:remove_any" | "queue:reorder" | "playback:control" | "fallback:manage" | "playlist:remove_any" | "broadcast:send" | "alerts:manage"
+  | "queue:remove_any" | "queue:reorder" | "playback:control" | "output:control" | "fallback:manage" | "playlist:remove_any" | "broadcast:send" | "alerts:manage"
   | "settings:manage" | "users:manage" | "integrations:manage";
 
 export interface User {
@@ -122,9 +122,22 @@ export interface PlayerStatus {
   lastError?: string;
   /** Output level 0-100 requested from the player. */
   volume: number;
+  /** Requested output: "auto" (the node's default) or a device id. */
+  audioDevice: string;
+  /** Outputs the connected player reported (empty while offline). */
+  audioDevices: AudioDevice[];
+  /** What the player is actually using right now. */
+  activeAudioDevice?: string;
+  /** The requested device was not found; the player fell back to auto. */
+  audioDeviceMissing?: boolean;
   /** Announcement playing over the music right now. */
   broadcast?: BroadcastStatus;
   broadcastsQueued: number;
+}
+
+export interface AudioDevice {
+  id: string;
+  name: string;
 }
 
 export interface BroadcastStatus {

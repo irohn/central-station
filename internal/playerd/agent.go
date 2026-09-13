@@ -33,6 +33,9 @@ type Agent struct {
 	MPV    *MPV
 
 	ProgressInterval time.Duration
+	// DeviceRefresh is how often the output list is re-read from mpv, since
+	// hot-plug events are not delivered by every backend. Default 6s.
+	DeviceRefresh time.Duration
 	// AudioArgs are passed to the second mpv used for announcements (--ao, --audio-device).
 	AudioArgs []string
 	// TempDir holds downloaded announcement clips (default os.TempDir()).
@@ -42,9 +45,15 @@ type Agent struct {
 	loadedItem *queue.Item
 	paused     bool
 	volume     int // last level applied to mpv; -1 until the first state
-	broadcast  *player.BroadcastCommand
-	bcQueue    []*player.BroadcastCommand
-	bcDone     chan broadcastResult
+	// requestedDevice is what the API asked for ("auto" = OS default);
+	// devices is mpv's current list; deviceMissing is set when the request
+	// could not be honoured and auto is in use instead.
+	requestedDevice string
+	devices         []player.AudioDevice
+	deviceMissing   bool
+	broadcast       *player.BroadcastCommand
+	bcQueue         []*player.BroadcastCommand
+	bcDone          chan broadcastResult
 }
 
 type broadcastResult struct {
@@ -56,6 +65,9 @@ type broadcastResult struct {
 func (a *Agent) Run(ctx context.Context) error {
 	if a.ProgressInterval == 0 {
 		a.ProgressInterval = 2 * time.Second
+	}
+	if a.DeviceRefresh == 0 {
+		a.DeviceRefresh = 6 * time.Second
 	}
 	a.volume = -1
 	backoff := time.Second
@@ -115,6 +127,8 @@ func (a *Agent) session(ctx context.Context) error {
 		}
 	}
 	send(player.ClientMessage{Type: "hello", Name: a.Name, Version: Version})
+	a.refreshDevices(sctx)
+	send(a.devicesMessage(sctx))
 
 	// Reader goroutine: desired states and announcements from the server.
 	states := make(chan player.DesiredState, 8)
@@ -141,6 +155,8 @@ func (a *Agent) session(ctx context.Context) error {
 
 	ticker := time.NewTicker(a.ProgressInterval)
 	defer ticker.Stop()
+	devTicker := time.NewTicker(a.DeviceRefresh)
+	defer devTicker.Stop()
 
 	for {
 		select {
@@ -176,6 +192,22 @@ func (a *Agent) session(ctx context.Context) error {
 			if msg, ok := a.handleMPVEvent(ev); ok {
 				send(msg)
 			}
+			if ev.Event == "property-change" && (ev.Name == "audio-device-list" || ev.Name == "audio-device") {
+				if ev.Name == "audio-device-list" {
+					a.refreshDevices(sctx)
+					a.applyDevice(sctx) // a missing device may have (re)appeared
+				}
+				send(a.devicesMessage(sctx))
+			}
+		case <-devTicker.C:
+			// Poll for plugged/unplugged outputs; some backends never emit hot-plug events.
+			before := append([]player.AudioDevice(nil), a.devices...)
+			a.refreshDevices(sctx)
+			if !devicesEqual(before, a.devices) {
+				a.Logger.Info("audio devices changed", "count", len(a.devices))
+				a.applyDevice(sctx)
+				send(a.devicesMessage(sctx))
+			}
 		case <-ticker.C:
 			if a.loadedItem != nil {
 				send(player.ClientMessage{
@@ -192,8 +224,108 @@ func (a *Agent) session(ctx context.Context) error {
 	}
 }
 
+// refreshDevices re-reads mpv's output list.
+func (a *Agent) refreshDevices(ctx context.Context) {
+	list, err := a.MPV.Devices(ctx)
+	if err != nil {
+		a.Logger.Warn("list audio devices", "err", err)
+		return
+	}
+	a.devices = filterDevices(list)
+}
+
+// filterDevices keeps real outputs from mpv's list: entries like "auto" and
+// bare backend names ("alsa", "jack", "sdl": the backend's own default) are
+// dropped because "auto" already covers them.
+func filterDevices(list []AudioDevice) []player.AudioDevice {
+	out := make([]player.AudioDevice, 0, len(list))
+	for _, d := range list {
+		if d.Name == player.AutoDevice || !strings.Contains(d.Name, "/") {
+			continue
+		}
+		out = append(out, player.AudioDevice{ID: d.Name, Name: d.Description})
+	}
+	return out
+}
+
+func devicesEqual(a, b []player.AudioDevice) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// devicesMessage reports the outputs and which one is in use.
+func (a *Agent) devicesMessage(ctx context.Context) player.ClientMessage {
+	active := a.MPV.GetString(ctx, "audio-device")
+	if active == "" {
+		active = player.AutoDevice
+	}
+	return player.ClientMessage{Type: "devices", Devices: append([]player.AudioDevice(nil), a.devices...), ActiveDevice: active, DeviceMissing: a.deviceMissing}
+}
+
+// chooseDevice decides what to hand mpv for a requested output: the request
+// itself when it is auto or present in devices, otherwise auto with missing=true.
+func chooseDevice(requested string, devices []player.AudioDevice) (id string, missing bool) {
+	if requested == "" || requested == player.AutoDevice {
+		return player.AutoDevice, false
+	}
+	for _, d := range devices {
+		if d.ID == requested {
+			return requested, false
+		}
+	}
+	return player.AutoDevice, true
+}
+
+// applyDevice makes mpv use the requested output (or auto when it is absent).
+func (a *Agent) applyDevice(ctx context.Context) {
+	id, missing := chooseDevice(a.requestedDevice, a.devices)
+	current := a.MPV.GetString(ctx, "audio-device")
+	if current == "" {
+		current = player.AutoDevice
+	}
+	if missing && !a.deviceMissing {
+		a.Logger.Warn("requested audio device not found; using the default output", "device", a.requestedDevice)
+	}
+	a.deviceMissing = missing
+	if current == id {
+		return
+	}
+	if err := a.MPV.SetAudioDevice(ctx, id); err != nil {
+		a.Logger.Error("set audio device", "device", id, "err", err)
+		return
+	}
+	a.Logger.Info("audio device", "device", id)
+}
+
+// broadcastAudioArgs are the output flags for the announcement mpv: the
+// configured defaults plus the selected device, if any.
+func (a *Agent) broadcastAudioArgs() []string {
+	args := append([]string(nil), a.AudioArgs...)
+	if id, missing := chooseDevice(a.requestedDevice, a.devices); !missing && id != player.AutoDevice {
+		args = append(args, "--audio-device="+id)
+	}
+	return args
+}
+
 // reconcile makes mpv match the desired state.
 func (a *Agent) reconcile(ctx context.Context, st player.DesiredState) {
+	if dev := st.AudioDevice; dev == "" {
+		dev = player.AutoDevice
+		if dev != a.requestedDevice {
+			a.requestedDevice = dev
+			a.applyDevice(ctx)
+		}
+	} else if dev != a.requestedDevice {
+		a.requestedDevice = dev
+		a.applyDevice(ctx)
+	}
 	if st.Volume >= 0 && st.Volume <= 100 && st.Volume != a.volume {
 		a.volume = st.Volume
 		if a.broadcast == nil { // while announcing, the ducked level stays until it ends
@@ -285,7 +417,7 @@ func (a *Agent) playBroadcast(ctx context.Context, b *player.BroadcastCommand) e
 	for i := 0; i < loops; i++ {
 		args = append(args, clip)
 	}
-	cmdArgs := append([]string{"--no-video", "--no-config", "--no-terminal", "--really-quiet", "--volume=100", "--keep-open=no"}, a.AudioArgs...)
+	cmdArgs := append([]string{"--no-video", "--no-config", "--no-terminal", "--really-quiet", "--volume=100", "--keep-open=no"}, a.broadcastAudioArgs()...)
 	cmdArgs = append(cmdArgs, args...)
 	cmd := exec.CommandContext(ctx, "mpv", cmdArgs...)
 	out, err := cmd.CombinedOutput()
