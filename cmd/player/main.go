@@ -33,8 +33,9 @@ func main() {
 	if ao := os.Getenv("MPV_AO"); ao != "" {
 		mpvArgs = append(mpvArgs, "--ao="+ao)
 	}
-	if dev := os.Getenv("MPV_AUDIO_DEVICE"); dev != "" {
-		mpvArgs = append(mpvArgs, "--audio-device="+dev)
+	defaultDevice := strings.TrimSpace(os.Getenv("MPV_AUDIO_DEVICE"))
+	if defaultDevice != "" {
+		mpvArgs = append(mpvArgs, "--audio-device="+defaultDevice)
 	}
 	if extra := strings.TrimSpace(os.Getenv("MPV_EXTRA_ARGS")); extra != "" {
 		mpvArgs = append(mpvArgs, strings.Fields(extra)...)
@@ -51,7 +52,7 @@ func main() {
 	}
 	logger.Info("mpv ready", "name", name, "api", apiURL, "args", mpvArgs)
 
-	agent := &playerd.Agent{APIURL: apiURL, Token: token, Name: name, Logger: logger, MPV: mpv, StartMPV: startMPV, ProgressInterval: 2 * time.Second, AudioArgs: mpvArgs}
+	agent := &playerd.Agent{APIURL: apiURL, Token: token, Name: name, Logger: logger, MPV: mpv, StartMPV: startMPV, ProgressInterval: 2 * time.Second, AudioArgs: mpvArgs, DefaultDevice: defaultDevice}
 	defer func() { agent.MPV.Close() }()
 	if err := agent.Run(ctx); err != nil {
 		logger.Error("agent stopped", "err", err)

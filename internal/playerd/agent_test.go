@@ -73,3 +73,17 @@ func TestIsOutputError(t *testing.T) {
 		}
 	}
 }
+
+func TestResolveTargetUsesConfiguredDefault(t *testing.T) {
+	a := &Agent{}
+	if got := a.resolveTarget("auto"); got != "auto" {
+		t.Fatalf("no default: %q", got)
+	}
+	a.DefaultDevice = "alsa/default:CARD=C5201"
+	if got := a.resolveTarget("auto"); got != "alsa/default:CARD=C5201" {
+		t.Fatalf("auto should map to the configured device, got %q", got)
+	}
+	if got := a.resolveTarget("pulse/bt"); got != "pulse/bt" {
+		t.Fatalf("explicit choice must win, got %q", got)
+	}
+}
