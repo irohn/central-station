@@ -16,27 +16,49 @@ import threading
 import wave
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from piper import PiperVoice
+from piper import PiperVoice, SynthesisConfig
 
 VOICE_DIR = os.environ.get("PIPER_VOICE_DIR", "/voices")
-DEFAULT_VOICE = os.environ.get("PIPER_DEFAULT_VOICE", "en_US-hfc_female-medium")
+DEFAULT_VOICE = os.environ.get("PIPER_DEFAULT_VOICE", "en_US-norman-medium")
 MAX_CHARS = int(os.environ.get("TTS_MAX_CHARS", "600"))
 MAX_LOADED = int(os.environ.get("TTS_MAX_LOADED_VOICES", "2"))
 
-# Friendly names for the voices we ship; anything else gets a generated label.
+# Friendly names for the voices we ship (Piper's ids are dataset names, so
+# the ones without a person's name get one here); anything else gets a
+# generated label. Order here is the order the UI shows.
 LABELS = {
-    "en_US-hfc_female-medium": "Female · US English (natural)",
-    "en_US-hfc_male-medium": "Male · US English (natural)",
-    "en_US-lessac-medium": "Female · US English (clear)",
-    "en_US-ryan-high": "Male · US English (high quality)",
-    "en_GB-jenny_dioco-medium": "Female · British English",
-    "en_GB-alan-medium": "Male · British English",
+    "en_US-norman-medium": "Norman · US, male",
+    "en_US-amy-medium": "Amy · US, female",
+    "en_US-hfc_female-medium": "Hannah · US, female (natural)",
+    "en_US-hfc_male-medium": "Henry · US, male (natural)",
+    "en_US-joe-medium": "Joe · US, male",
+    "en_US-kristin-medium": "Kristin · US, female",
+    "en_US-mike-medium": "Mike · US, male",
+    "en_US-ryan-high": "Ryan · US, male (high quality)",
+    "en_US-lessac-high": "Leslie · US, female (high quality)",
+    "en_US-libritts_r-medium": "Libby · US (clear)",
+    "en_US-libritts-high": "Liberty · US (high quality)",
+    "en_US-l2arctic-medium": "Lina · US, non-native accent",
+    "en_GB-jenny_dioco-medium": "Jenny · British, female",
+    "en_GB-alan-medium": "Alan · British, male",
+}
+
+# Multi-speaker models (libritts has 904 voices, l2arctic 24): which speaker
+# each label refers to. Single-speaker models ignore this.
+SPEAKERS = {
+    "en_US-libritts_r-medium": 0,
+    "en_US-libritts-high": 0,
+    "en_US-l2arctic-medium": 0,
 }
 
 
 def discover():
     voices = {}
-    for f in sorted(os.listdir(VOICE_DIR)):
+    # Labelled voices first, in LABELS order; anything else after, alphabetically.
+    files = sorted(f for f in os.listdir(VOICE_DIR) if f.endswith(".onnx"))
+    order = {vid: i for i, vid in enumerate(LABELS)}
+    files.sort(key=lambda f: (order.get(f[:-5], len(order)), f))
+    for f in files:
         if not f.endswith(".onnx"):
             continue
         vid = f[:-5]
@@ -108,10 +130,11 @@ class Handler(BaseHTTPRequestHandler):
         if vid not in VOICES:
             return self._json(400, {"error": f"unknown voice {vid!r}"})
         buf = io.BytesIO()
+        syn = SynthesisConfig(speaker_id=SPEAKERS[vid]) if vid in SPEAKERS else None
         with lock:
             voice = get_voice(vid)
             with wave.open(buf, "wb") as w:
-                voice.synthesize_wav(text, w)
+                voice.synthesize_wav(text, w, syn_config=syn)
         data = buf.getvalue()
         self.send_response(200)
         self.send_header("Content-Type", "audio/wav")

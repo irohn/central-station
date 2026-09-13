@@ -234,11 +234,16 @@ API: `GET/POST /clips`, `POST /clips/tts`, `GET /clips/{id}/audio`,
 `GET /broadcasts`.
 
 The `tts` image (`tts/`) wraps [Piper](https://github.com/OHF-Voice/piper1-gpl)
-with six bundled voices (US and British English, female and male; the default
-is `en_US-hfc_female-medium`, a natural American voice). `GET /voices` on the
-service lists them; admins choose the default (`PUT /settings/tts`) and every
-typed announcement can pick one. Models load on first use and only the two most
-recently used stay in memory. Set `TTS_URL` on the API to enable typed
+with fourteen bundled voices: twelve US English (Norman, Amy, Hannah, Henry,
+Joe, Kristin, Mike, Ryan, Leslie, Libby, Liberty, Lina) and two British (Jenny,
+Alan). The default is Norman (`en_US-norman-medium`). The friendly names and
+the speaker picked from Piper's multi-speaker models live in `tts/server.py`;
+the id list is the `PIPER_VOICES` build arg in `tts/Dockerfile` (samples:
+https://rhasspy.github.io/piper-samples/). `GET /voices` on the service lists
+them; admins choose the default (`PUT /settings/tts`) and every typed
+announcement can pick one. Models load on first use and only the two most
+recently used stay in memory; the "high" models need roughly twice the memory
+of "medium" ones, so give the service about 1.5 GB when two can be loaded. Set `TTS_URL` on the API to enable typed
 announcements; `POST /clips/tts/preview` synthesises without saving.
 
 Storage is bounded: at most `CLIPS_MAX_SAVED` user clips (default 50, bundled
