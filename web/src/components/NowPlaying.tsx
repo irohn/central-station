@@ -177,6 +177,17 @@ export function NowPlaying({ queue, player, user }: { queue: QueueState; player:
         </div>
       )}
       {error && <p className="error">{error}</p>}
+      {player.fault && (
+        <div className={`fault ${player.fault.kind}`} role="alert">
+          <strong>{player.fault.kind === "output" ? "No audio output" : "Playback keeps failing"}</strong>
+          <span className="small">
+            {player.fault.kind === "output"
+              ? " · Playback is paused until the player can open its speakers again (device unplugged or sound server down?). It resumes automatically."
+              : " · Playback is paused so the queue is not skipped through. Fix the cause and press Resume."}
+          </span>
+          <div className="muted small ellipsis" title={player.fault.message}>{player.fault.message}</div>
+        </div>
+      )}
       {!player.online && cur && <p className="warn small">No player is connected, so nothing is actually coming out of the speakers.</p>}
       {player.lastError && <p className="warn small">Player error on the last track: {player.lastError}</p>}
     </section>

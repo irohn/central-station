@@ -115,6 +115,11 @@ export function ZonesPage({ zones, zoneId, onSelect }: { zones: ZoneSummary[]; z
                   {z.player.online ? `Player online${z.player.name ? ` · ${z.player.name}` : ""}` : "No player connected"}
                   {" · "}{z.current ? `${z.status}: ${z.current.track.title}` : "idle"}{z.queued > 0 ? ` · ${z.queued} queued` : ""}
                 </div>
+                {z.player.fault && (
+                  <div className="warn small ellipsis" title={z.player.fault.message}>
+                    Paused: {z.player.fault.kind === "output" ? "no audio output" : "playback keeps failing"}
+                  </div>
+                )}
                 {z.player.online && (
                   <div className="muted small ellipsis">
                     Output: {z.player.audioDevice === "auto"

@@ -61,7 +61,7 @@ type BroadcastCommand struct {
 
 // ClientMessage is sent from the player to the API.
 type ClientMessage struct {
-	Type        string  `json:"type"` // hello | progress | ended | broadcast_ended | devices
+	Type        string  `json:"type"` // hello | progress | ended | broadcast_ended | devices | output_error | output_ok
 	Name        string  `json:"name,omitempty"`
 	Version     string  `json:"version,omitempty"`
 	ItemID      string  `json:"itemId,omitempty"`
@@ -76,6 +76,21 @@ type ClientMessage struct {
 	ActiveDevice  string        `json:"activeDevice,omitempty"`
 	DeviceMissing bool          `json:"deviceMissing,omitempty"`
 }
+
+// Fault explains why the API paused a zone on its own. Kind "output": the
+// player cannot open its audio output (device unplugged, no sound server);
+// playback resumes automatically when the player reports the output is back.
+// Kind "playback": several tracks in a row failed to play (e.g. yt-dlp out of
+// date); a manager resumes manually once the cause is fixed.
+type Fault struct {
+	Kind    string    `json:"kind"` // output | playback
+	Message string    `json:"message"`
+	Since   time.Time `json:"since"`
+}
+
+// MaxConsecutiveErrors is how many tracks may fail back-to-back before the
+// zone is paused instead of skipping on.
+const MaxConsecutiveErrors = 3
 
 // Status is what the API knows about the connected player.
 type Status struct {
@@ -97,6 +112,8 @@ type Status struct {
 	AudioDevices       []AudioDevice `json:"audioDevices"`
 	ActiveAudioDevice  string        `json:"activeAudioDevice,omitempty"`
 	AudioDeviceMissing bool          `json:"audioDeviceMissing,omitempty"`
+	// Fault is set while the API has paused the zone because of a problem.
+	Fault *Fault `json:"fault,omitempty"`
 	// Broadcast is the announcement playing now, if any.
 	Broadcast *BroadcastStatus `json:"broadcast,omitempty"`
 	// BroadcastsQueued counts announcements waiting behind it.

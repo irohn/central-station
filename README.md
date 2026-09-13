@@ -365,6 +365,23 @@ about a tenth of a second; volume and announcement ducking carry over.
   `audioDevices`, `audioDevice` (requested), `activeAudioDevice` and
   `audioDeviceMissing`.
 
+### When the speakers go away (faults)
+
+The zone is paused rather than skipped through when the player cannot play:
+
+- **No audio output** (device unplugged, sound server gone): the player reports
+  it, the API pauses the zone on the current track, shows "No audio output" in
+  Now playing, and nothing is written to history. The player keeps retrying the
+  track every few seconds; as soon as mpv can open an output again the zone
+  resumes by itself. A player reconnect (node reboot) also resumes.
+- **Tracks keep failing** (three in a row, e.g. yt-dlp out of date): the zone
+  pauses on the next track with a "Playback keeps failing" notice instead of
+  burning through the queue. Fix the cause (usually rebuild the player image)
+  and press Resume; a track that plays for a few seconds clears the fault.
+
+Both faults appear in `GET .../player` as `fault: {kind, message, since}` and in
+the zone switcher.
+
 ### Player container and audio
 
 `Dockerfile.player` builds a Debian image with mpv, the latest yt-dlp release, and the

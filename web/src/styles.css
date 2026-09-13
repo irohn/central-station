@@ -357,3 +357,8 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .output svg { flex: 0 0 auto; }
 .output select { flex: 0 1 auto; max-width: 100%; min-width: 160px; }
 .output-name { min-width: 0; }
+
+/* Fault banner (Now playing) */
+.fault { margin-top: 0.75rem; padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
+.fault.output { border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.fault strong { margin-right: 0.15rem; }

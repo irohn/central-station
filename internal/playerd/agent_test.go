@@ -59,3 +59,17 @@ func TestFilterDevices(t *testing.T) {
 		t.Fatal("devicesEqual")
 	}
 }
+
+func TestIsOutputError(t *testing.T) {
+	for msg, want := range map[string]bool{
+		"audio output initialization failed": true,
+		"Audio device not found":             true,
+		"loading failed":                     false,
+		"Failed to recognize file format":    false,
+		"":                                   false,
+	} {
+		if got := isOutputError(msg); got != want {
+			t.Errorf("isOutputError(%q) = %v, want %v", msg, got, want)
+		}
+	}
+}

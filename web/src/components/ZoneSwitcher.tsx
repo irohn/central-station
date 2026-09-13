@@ -52,7 +52,7 @@ export function ZoneSwitcher({ zones, zoneId, onSelect, onManage }: {
               <span className="zone-option-text">
                 <span className="strong ellipsis">{z.name}</span>
                 <span className="muted small ellipsis">
-                  {z.current ? `${z.status === "paused" ? "Paused: " : ""}${z.current.track.title}` : z.player.online ? "Idle" : "No player connected"}
+                  {z.player.fault ? (z.player.fault.kind === "output" ? "Paused: no audio output" : "Paused: playback failing") : z.current ? `${z.status === "paused" ? "Paused: " : ""}${z.current.track.title}` : z.player.online ? "Idle" : "No player connected"}
                 </span>
               </span>
               {z.id === zoneId && <Check width={16} height={16} className="muted" />}

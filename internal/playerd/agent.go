@@ -31,6 +31,10 @@ type Agent struct {
 	Name   string
 	Logger *slog.Logger
 	MPV    *MPV
+	// StartMPV creates a fresh mpv. It is used to recover from audio output
+	// failures: once mpv's output has failed it will not open again in the
+	// same process, so the retry restarts mpv.
+	StartMPV func(ctx context.Context) (*MPV, error)
 
 	ProgressInterval time.Duration
 	// DeviceRefresh is how often the output list is re-read from mpv, since
@@ -51,9 +55,15 @@ type Agent struct {
 	requestedDevice string
 	devices         []player.AudioDevice
 	deviceMissing   bool
-	broadcast       *player.BroadcastCommand
-	bcQueue         []*player.BroadcastCommand
-	bcDone          chan broadcastResult
+	// outputFailed is set after mpv could not open the audio output; the
+	// current item is retried on every device poll until it plays.
+	outputFailed bool
+	lastState    *player.DesiredState
+	nextRetry    time.Time
+	retryDelay   time.Duration
+	broadcast    *player.BroadcastCommand
+	bcQueue      []*player.BroadcastCommand
+	bcDone       chan broadcastResult
 }
 
 type broadcastResult struct {
@@ -192,6 +202,16 @@ func (a *Agent) session(ctx context.Context) error {
 			if msg, ok := a.handleMPVEvent(ev); ok {
 				send(msg)
 			}
+			if ev.Event == "property-change" && ev.Name == "current-ao" && a.outputFailed {
+				var ao string
+				if json.Unmarshal(ev.Data, &ao) == nil && ao != "" {
+					a.outputFailed = false
+					a.retryDelay = 0
+					a.Logger.Info("audio output is back", "ao", ao)
+					send(player.ClientMessage{Type: "output_ok"})
+					send(a.devicesMessage(sctx))
+				}
+			}
 			if ev.Event == "property-change" && (ev.Name == "audio-device-list" || ev.Name == "audio-device") {
 				if ev.Name == "audio-device-list" {
 					a.refreshDevices(sctx)
@@ -207,6 +227,24 @@ func (a *Agent) session(ctx context.Context) error {
 				a.Logger.Info("audio devices changed", "count", len(a.devices))
 				a.applyDevice(sctx)
 				send(a.devicesMessage(sctx))
+			}
+			if a.outputFailed && a.lastState != nil && a.lastState.Current != nil && a.loadedItem == nil && !time.Now().Before(a.nextRetry) {
+				// Retry the current item with a fresh mpv; success shows up as
+				// current-ao becoming set. Back off up to a minute between tries.
+				if a.retryDelay == 0 {
+					a.retryDelay = a.DeviceRefresh
+				}
+				a.nextRetry = time.Now().Add(a.retryDelay)
+				if a.retryDelay < time.Minute {
+					a.retryDelay *= 2
+				}
+				a.Logger.Info("retrying playback after audio output failure", "nextRetryIn", a.retryDelay)
+				if err := a.restartMPV(sctx); err != nil {
+					a.Logger.Error("restart mpv", "err", err)
+					continue
+				}
+				a.refreshDevices(sctx)
+				a.reconcile(sctx, *a.lastState)
 			}
 		case <-ticker.C:
 			if a.loadedItem != nil {
@@ -314,8 +352,39 @@ func (a *Agent) broadcastAudioArgs() []string {
 	return args
 }
 
+// restartMPV replaces the mpv process (see StartMPV) and resets the local
+// playback state so the next reconcile re-applies volume, device and track.
+func (a *Agent) restartMPV(ctx context.Context) error {
+	if a.StartMPV == nil {
+		return errors.New("no StartMPV configured")
+	}
+	old := a.MPV
+	fresh, err := a.StartMPV(ctx)
+	if err != nil {
+		return err
+	}
+	a.MPV = fresh
+	a.loadedItem = nil
+	a.paused = false
+	a.volume = -1
+	a.requestedDevice = "" // force applyDevice on the next reconcile
+	if old != nil {
+		go old.Close()
+	}
+	return nil
+}
+
+// isOutputError reports whether an mpv end-file error means the audio output
+// could not be opened (as opposed to the track being unplayable).
+func isOutputError(msg string) bool {
+	m := strings.ToLower(msg)
+	return strings.Contains(m, "audio output") || strings.Contains(m, "audio device")
+}
+
 // reconcile makes mpv match the desired state.
 func (a *Agent) reconcile(ctx context.Context, st player.DesiredState) {
+	cp := st
+	a.lastState = &cp
 	if dev := st.AudioDevice; dev == "" {
 		dev = player.AutoDevice
 		if dev != a.requestedDevice {
@@ -476,9 +545,16 @@ func (a *Agent) handleMPVEvent(ev MPVEvent) (player.ClientMessage, bool) {
 			if msg == "" {
 				msg = "mpv could not play this item (is yt-dlp up to date?)"
 			}
-			a.Logger.Error("playback error", "item", a.loadedItem.ID, "err", msg)
 			id := a.loadedItem.ID
 			a.loadedItem = nil
+			if isOutputError(msg) {
+				if !a.outputFailed {
+					a.Logger.Error("audio output unavailable; holding playback", "item", id, "err", msg)
+				}
+				a.outputFailed = true
+				return player.ClientMessage{Type: "output_error", ItemID: id, Error: msg + " (device unplugged or no sound server?)"}, true
+			}
+			a.Logger.Error("playback error", "item", id, "err", msg)
 			return player.ClientMessage{Type: "ended", ItemID: id, Reason: "error", Error: msg}, true
 		}
 		// "stop" / "redirect" / "quit": caused by us, ignore.
