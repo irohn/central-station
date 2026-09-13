@@ -36,6 +36,36 @@ func (a *api) setVolume(w http.ResponseWriter, r *http.Request) error {
 	return nil
 }
 
+// POST /playback/output  {"device": "pulse/alsa_output.usb-…" | "auto"}   (managers)
+//
+// Picks which of the player's outputs the zone plays through. Valid ids are
+// "auto" (the node's default output) and the ids listed in the player status
+// (audioDevices); while no player is connected any id is accepted and the
+// player validates it when it connects.
+func (a *api) setOutput(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
+	var body struct {
+		Device *string `json:"device"`
+	}
+	if err := httpx.Decode(r, &body, false); err != nil {
+		return err
+	}
+	if body.Device == nil {
+		return httpx.BadRequest("invalid_input", "device is required (\"auto\" or an id from audioDevices)")
+	}
+	if err := rt.Hub.SetAudioDevice(r.Context(), strings.TrimSpace(*body.Device)); err != nil {
+		if errors.Is(err, player.ErrUnknownDevice) {
+			return httpx.BadRequest("unknown_device", "%s", err.Error()).WithDetails(map[string]any{"audioDevices": rt.Hub.Status().AudioDevices})
+		}
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, rt.Hub.Status())
+	return nil
+}
+
 // GET /player  (any signed-in user)
 func (a *api) getPlayer(w http.ResponseWriter, r *http.Request) error {
 	rt, err := a.rt(r)

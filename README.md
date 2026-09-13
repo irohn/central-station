@@ -89,7 +89,7 @@ Roles are cumulative. Each includes everything below it.
 |---|---|
 | `listener` | `queue:read`, `history:read`, `track:resolve` |
 | `collaborator` | `queue:add`, `queue:remove_own`, `playlist:write` |
-| `manager` | `queue:remove_any`, `queue:reorder`, `playback:control` (skip / pause / resume / override) |
+| `manager` | `queue:remove_any`, `queue:reorder`, `playback:control` (skip / pause / resume / override), `output:control` (pick the speakers) |
 | `admin` | `settings:manage`, `users:manage`, `integrations:manage` (speakers, Spotify/Apple Music links) |
 
 New users get `DEFAULT_ROLE` (default `listener`). Emails in `ADMIN_EMAILS` are always
@@ -339,6 +339,31 @@ UI shows the playlist and its next track in a separate card.
   only exposes the first 100.
 - API: `GET /api/v1/settings/fallback`, `PUT /api/v1/settings/fallback`
   `{"url","enabled","shuffle"}`, `POST /api/v1/settings/fallback/refresh`.
+
+### Choosing the output device (USB, Bluetooth, HDMI…)
+
+Each zone's player reports the outputs its node can see, and managers pick one
+from the **Now playing** card (permission `output:control`, manager by default).
+"System default" follows whatever the node's OS uses as its default output;
+picking a device pins the zone to it. Switching happens mid-track with a gap of
+about a tenth of a second; volume and announcement ducking carry over.
+
+- The list comes from mpv (`audio-device-list`), so it is the same code on every
+  platform. Linux nodes with PipeWire or PulseAudio list every sink, Bluetooth
+  speakers included as soon as the OS connects them. In ALSA mode
+  (`MPV_AO=alsa`) only sound cards appear and Bluetooth never does. On macOS,
+  PulseAudio on the Mac publishes each CoreAudio device as a sink, so the same
+  picker works there.
+- Pairing and connecting Bluetooth stays with the operating system; the picker
+  switches between devices the OS already has.
+- The choice is stored per zone and re-applied when the player reconnects. If
+  the chosen device is unplugged the player falls back to the default output and
+  the UI shows "not found, using default"; it switches back automatically when
+  the device reappears.
+- API: `POST /api/v1/zones/{zone}/playback/output` with
+  `{"device": "auto" | "<id from audioDevices>"}`; `GET .../player` carries
+  `audioDevices`, `audioDevice` (requested), `activeAudioDevice` and
+  `audioDeviceMissing`.
 
 ### Player container and audio
 

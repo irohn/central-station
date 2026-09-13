@@ -351,3 +351,9 @@ textarea:focus { outline: none; border-color: var(--accent); }
   .zone-row { flex-wrap: wrap; }
   .zone-actions { width: 100%; justify-content: flex-end; }
 }
+
+/* Output device row (Now playing) */
+.output { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; min-width: 0; }
+.output svg { flex: 0 0 auto; }
+.output select { flex: 0 1 auto; max-width: 100%; min-width: 160px; }
+.output-name { min-width: 0; }

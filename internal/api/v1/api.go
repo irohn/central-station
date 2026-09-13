@@ -112,6 +112,7 @@ func Handler(d Deps) http.Handler {
 	zoned("POST /playback/resume", a.perm(rbac.PlaybackControl, a.resume))
 	zoned("POST /playback/complete", a.perm(rbac.PlaybackControl, a.complete))
 	zoned("POST /playback/volume", a.perm(rbac.VolumeControl, a.setVolume))
+	zoned("POST /playback/output", a.perm(rbac.OutputControl, a.setOutput))
 
 	// Default playlist (plays when the queue is empty)
 	zoned("GET /settings/fallback", a.perm(rbac.QueueRead, a.getFallback))

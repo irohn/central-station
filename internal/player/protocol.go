@@ -19,10 +19,23 @@ import (
 	"central-station/internal/queue"
 )
 
+// AudioDevice is an output the player can use, as mpv reports it
+// (e.g. "pulse/alsa_output.usb-…", "coreaudio/…"). ID "auto" follows the
+// operating system's default output.
+type AudioDevice struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// AutoDevice is the id meaning "follow the OS default output".
+const AutoDevice = "auto"
+
 // DesiredState is what the player should be doing right now.
 type DesiredState struct {
 	Status  queue.Status `json:"status"`
 	Current *queue.Item  `json:"current"`
+	// AudioDevice is the requested output id ("" or "auto" = OS default).
+	AudioDevice string `json:"audioDevice,omitempty"`
 	// Volume is the output level 0-100 (mpv software volume; 100 = the
 	// host's mixer level unchanged).
 	Volume int `json:"volume"`
@@ -48,7 +61,7 @@ type BroadcastCommand struct {
 
 // ClientMessage is sent from the player to the API.
 type ClientMessage struct {
-	Type        string  `json:"type"` // hello | progress | ended | broadcast_ended
+	Type        string  `json:"type"` // hello | progress | ended | broadcast_ended | devices
 	Name        string  `json:"name,omitempty"`
 	Version     string  `json:"version,omitempty"`
 	ItemID      string  `json:"itemId,omitempty"`
@@ -57,6 +70,11 @@ type ClientMessage struct {
 	Duration    float64 `json:"durationSeconds,omitempty"`
 	Reason      string  `json:"reason,omitempty"` // eof | error
 	Error       string  `json:"error,omitempty"`
+	// devices: the outputs the player sees, which one is in use, and whether
+	// the requested one is missing (the player then falls back to auto).
+	Devices       []AudioDevice `json:"devices,omitempty"`
+	ActiveDevice  string        `json:"activeDevice,omitempty"`
+	DeviceMissing bool          `json:"deviceMissing,omitempty"`
 }
 
 // Status is what the API knows about the connected player.
@@ -72,6 +90,13 @@ type Status struct {
 	LastError   string    `json:"lastError,omitempty"`
 	// Volume is the level the player is asked to use (0-100).
 	Volume int `json:"volume"`
+	// AudioDevice is the requested output ("auto" = OS default); AudioDevices
+	// is what the connected player reported; ActiveAudioDevice is what it is
+	// actually using; AudioDeviceMissing means the requested one was not found.
+	AudioDevice        string        `json:"audioDevice"`
+	AudioDevices       []AudioDevice `json:"audioDevices"`
+	ActiveAudioDevice  string        `json:"activeAudioDevice,omitempty"`
+	AudioDeviceMissing bool          `json:"audioDeviceMissing,omitempty"`
 	// Broadcast is the announcement playing now, if any.
 	Broadcast *BroadcastStatus `json:"broadcast,omitempty"`
 	// BroadcastsQueued counts announcements waiting behind it.
