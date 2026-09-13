@@ -26,6 +26,14 @@ type User struct {
 	CreatedAt   time.Time `json:"createdAt"`
 	LastLoginAt time.Time `json:"lastLoginAt"`
 
+	// DisplayName is a name chosen in the app; when set it is what Name
+	// returns instead of the profile name Google refreshes on sign-in.
+	DisplayName string `json:"displayName,omitempty"`
+
+	// permOverride, when non-nil, replaces the role's permissions for this
+	// request (set by the auth middleware from the in-memory overrides).
+	permOverride []rbac.Permission
+
 	// Password sign-in. PasswordHash is a PHC argon2id string ("" = no password).
 	PasswordHash  string    `json:"-"`
 	EmailVerified bool      `json:"emailVerified"`
@@ -49,6 +57,8 @@ type UserStore interface {
 	// profile fields and LastLoginAt. The stored role is kept for existing users.
 	Upsert(ctx context.Context, u *User) (*User, error)
 	SetRole(ctx context.Context, id string, role rbac.Role) (*User, error)
+	// SetDisplayName stores the chosen name ("" = back to the profile name).
+	SetDisplayName(ctx context.Context, id, name string) (*User, error)
 	List(ctx context.Context) ([]*User, error)
 
 	// Register creates a password user (unverified). ErrExists if the email is taken.
@@ -64,15 +74,16 @@ type UserStore interface {
 
 // Memory is a mutex-guarded in-memory UserStore.
 type Memory struct {
-	mu      sync.RWMutex
-	byID    map[string]*User
-	byEmail map[string]string
-	now     func() time.Time
+	mu          sync.RWMutex
+	byID        map[string]*User
+	byEmail     map[string]string
+	profileName map[string]string // id -> name from the identity provider
+	now         func() time.Time
 }
 
 // NewMemory creates an empty in-memory store.
 func NewMemory() *Memory {
-	return &Memory{byID: map[string]*User{}, byEmail: map[string]string{}, now: time.Now}
+	return &Memory{byID: map[string]*User{}, byEmail: map[string]string{}, profileName: map[string]string{}, now: time.Now}
 }
 
 func (m *Memory) GetByID(_ context.Context, id string) (*User, error) {
@@ -106,7 +117,9 @@ func (m *Memory) Upsert(_ context.Context, in *User) (*User, error) {
 	now := m.now()
 	if id, ok := m.byEmail[email]; ok {
 		u := m.byID[id]
+		m.profileName[id] = in.Name
 		u.Name = in.Name
+		u.applyDisplayName()
 		u.PictureURL = in.PictureURL
 		if in.GoogleSub != "" {
 			u.GoogleSub = in.GoogleSub
@@ -127,6 +140,7 @@ func (m *Memory) Upsert(_ context.Context, in *User) (*User, error) {
 	}
 	m.byID[u.ID] = &u
 	m.byEmail[email] = u.ID
+	m.profileName[u.ID] = u.Name
 	cp := u
 	return &cp, nil
 }
@@ -150,6 +164,7 @@ func (m *Memory) Register(_ context.Context, in *User) (*User, error) {
 	}
 	m.byID[u.ID] = &u
 	m.byEmail[email] = u.ID
+	m.profileName[u.ID] = u.Name
 	cp := u
 	return &cp, nil
 }
@@ -215,6 +230,55 @@ func (m *Memory) TouchLogin(_ context.Context, id string) error {
 	}
 	u.LastLoginAt = m.now()
 	return nil
+}
+
+// SetPermissionOverride replaces the role's permissions for this request.
+func (u *User) SetPermissionOverride(p []rbac.Permission) { u.permOverride = p }
+
+// PermissionsOverridden reports whether an override is in effect.
+func (u *User) PermissionsOverridden() bool { return u.permOverride != nil }
+
+// Permissions returns the effective permissions: the override if one is set,
+// else the role's.
+func (u *User) Permissions() []rbac.Permission {
+	if u.permOverride != nil {
+		return append([]rbac.Permission(nil), u.permOverride...)
+	}
+	return u.Role.Permissions()
+}
+
+// Has reports whether the user holds the permission.
+func (u *User) Has(p rbac.Permission) bool {
+	for _, got := range u.Permissions() {
+		if got == p {
+			return true
+		}
+	}
+	return false
+}
+
+// applyDisplayName makes Name the display name when one is set.
+func (u *User) applyDisplayName() {
+	if u.DisplayName != "" {
+		u.Name = u.DisplayName
+	}
+}
+
+func (m *Memory) SetDisplayName(_ context.Context, id, name string) (*User, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	u, ok := m.byID[id]
+	if !ok {
+		return nil, ErrNotFound
+	}
+	u.DisplayName = strings.TrimSpace(name)
+	if u.DisplayName == "" {
+		u.Name = m.profileName[id]
+	} else {
+		u.Name = u.DisplayName
+	}
+	cp := *u
+	return &cp, nil
 }
 
 func (m *Memory) SetRole(_ context.Context, id string, role rbac.Role) (*User, error) {

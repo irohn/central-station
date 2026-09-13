@@ -21,7 +21,7 @@ export function SettingsMenu({ user, player, zoneName, connected, theme, onToggl
   const canBroadcast = user.permissions.includes("broadcast:send");
   const canAlerts = user.permissions.includes("alerts:manage");
   const isAdmin = user.permissions.includes("users:manage");
-  const canZones = user.permissions.includes("integrations:manage");
+  const canZones = user.permissions.includes("integrations:manage") || user.permissions.includes("output:control");
 
   useEffect(() => {
     if (!open) return;

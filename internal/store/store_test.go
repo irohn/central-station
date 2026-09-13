@@ -66,6 +66,23 @@ func userStoreConformance(t *testing.T, s UserStore) {
 	if err != nil || len(list) != 2 || list[0].Email != "ann@example.com" {
 		t.Fatalf("list: %v %v", list, err)
 	}
+
+	// Display name overrides the profile name and survives a profile refresh.
+	named, err := s.SetDisplayName(ctx, bob.ID, "Bobby")
+	if err != nil || named.Name != "Bobby" || named.DisplayName != "Bobby" {
+		t.Fatalf("set display name: %+v %v", named, err)
+	}
+	again, err := s.Upsert(ctx, &User{Email: "bob@example.com", Name: "Robert (Google)"})
+	if err != nil || again.Name != "Bobby" {
+		t.Fatalf("display name lost on upsert: %+v %v", again, err)
+	}
+	cleared, err := s.SetDisplayName(ctx, bob.ID, "")
+	if err != nil || cleared.Name != "Robert (Google)" || cleared.DisplayName != "" {
+		t.Fatalf("clear display name: %+v %v", cleared, err)
+	}
+	if _, err := s.SetDisplayName(ctx, "00000000-0000-4000-8000-000000000000", "x"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("set display name missing: %v", err)
+	}
 }
 
 func TestMemoryUserStore(t *testing.T) { userStoreConformance(t, NewMemory()) }

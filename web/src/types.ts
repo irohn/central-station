@@ -17,6 +17,10 @@ export interface User {
   lastLoginAt: string;
   emailVerified: boolean;
   hasPassword: boolean;
+  /** An admin replaced this user's permissions for the running API instance. */
+  permissionsOverridden?: boolean;
+  /** Name chosen in the app (empty = profile name). */
+  displayName?: string;
 }
 
 export interface Track {
@@ -87,6 +91,8 @@ export interface FallbackView {
   playlist?: FallbackPlaylist;
   next?: Track;
   updatedAt?: string;
+  /** The playlist configured on the server (FALLBACK_PLAYLIST_URL); Reset restores it. */
+  envDefault?: { url: string; enabled: boolean; shuffle: boolean };
 }
 
 export type PlaybackStatus = "idle" | "playing" | "paused";
