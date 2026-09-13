@@ -95,7 +95,8 @@ h2 { font-size: 1.05rem; }
   background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow);
 }
 .menu-user { display: flex; align-items: center; gap: 0.75rem; padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); }
-.menu-close { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; }
+.btn.icon.menu-close { display: inline-grid; place-items: center; width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0; margin: 0; line-height: 0; border-radius: 50%; flex: 0 0 auto; }
+.btn.icon.menu-close svg { display: block; width: 18px; height: 18px; }
 .menu-user-text { min-width: 0; flex: 1; }
 .menu-status { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); background: var(--panel-2); font-size: 0.92rem; }
 .menu-status .dot { margin-top: 0.35rem; }
