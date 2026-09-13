@@ -68,7 +68,9 @@ func (a *api) getQueue(w http.ResponseWriter, r *http.Request) error {
 // A playlist URL (youtube.com/playlist?list=..., music.youtube.com/...)
 // queues the whole playlist (permission playlist:write) and answers with
 // "kind":"playlist"; anything else queues a single track ("kind":"track").
-// Optional "shuffle" (default true) applies to playlists.
+// Optional "shuffle" (default true) applies to playlists. For tracks,
+// "playNext" (queue:reorder) puts it first in line and "playNow"
+// (playback:control) also skips the current track.
 func (a *api) addToQueue(w http.ResponseWriter, r *http.Request) error {
 	rt, err := a.rt(r)
 	if err != nil {
@@ -77,17 +79,25 @@ func (a *api) addToQueue(w http.ResponseWriter, r *http.Request) error {
 	u := auth.MustUser(r)
 	var body struct {
 		resolveRequest
-		Shuffle *bool `json:"shuffle,omitempty"`
+		Shuffle  *bool `json:"shuffle,omitempty"`
+		PlayNext bool  `json:"playNext,omitempty"`
+		PlayNow  bool  `json:"playNow,omitempty"`
 	}
 	if err := httpx.Decode(r, &body, false); err != nil {
 		return err
+	}
+	if body.PlayNow && !u.Has(rbac.PlaybackControl) {
+		return httpx.Forbidden("role %q lacks permission %q", u.Role, rbac.PlaybackControl)
+	}
+	if body.PlayNext && !u.Has(rbac.QueueReorder) {
+		return httpx.Forbidden("role %q lacks permission %q", u.Role, rbac.QueueReorder)
 	}
 	res, err := a.Providers.Resolve(r.Context(), body.Input, body.Provider)
 	if errors.Is(err, provider.ErrInvalidURL) {
 		// Not a playable video URL: maybe a playlist.
 		pl, perr := a.Providers.ResolvePlaylist(r.Context(), body.Input)
 		if perr == nil {
-			if !u.Role.Has(rbac.PlaylistWrite) {
+			if !u.Has(rbac.PlaylistWrite) {
 				return httpx.Forbidden("role %q lacks permission %q", u.Role, rbac.PlaylistWrite)
 			}
 			shuffle := body.Shuffle == nil || *body.Shuffle
@@ -113,6 +123,20 @@ func (a *api) addToQueue(w http.ResponseWriter, r *http.Request) error {
 	item, err := rt.Queue.Add(r.Context(), res.Track, u.ID, u.Name)
 	if err != nil {
 		return err
+	}
+	if body.PlayNext || body.PlayNow {
+		// Add may have promoted the item straight into the current slot (idle
+		// zone); only reorder when it is actually waiting in the queue.
+		if _, qerr := rt.Queue.Get(item.ID); qerr == nil {
+			if err := rt.Queue.Move(r.Context(), item.ID, 0); err != nil {
+				return queueError(err)
+			}
+			if body.PlayNow {
+				if _, err := rt.Queue.Skip(r.Context(), u.ID); err != nil && !errors.Is(err, queue.ErrNotPlaying) {
+					return queueError(err)
+				}
+			}
+		}
 	}
 	httpx.JSON(w, http.StatusCreated, map[string]any{
 		"kind":      "track",
@@ -141,9 +165,9 @@ func (a *api) playlistAccess(r *http.Request, rt *zones.Runtime, id string) (*qu
 		return nil, queueError(err)
 	}
 	switch {
-	case u.Role.Has(rbac.PlaylistRemoveAny):
-	case u.Role.Has(rbac.PlaylistWrite) && pl.AddedByID == u.ID:
-	case u.Role.Has(rbac.PlaylistWrite):
+	case u.Has(rbac.PlaylistRemoveAny):
+	case u.Has(rbac.PlaylistWrite) && pl.AddedByID == u.ID:
+	case u.Has(rbac.PlaylistWrite):
 		return nil, httpx.Forbidden("you can only change playlists you added")
 	default:
 		return nil, httpx.Forbidden("role %q lacks permission %q", u.Role, rbac.PlaylistWrite)
@@ -211,9 +235,9 @@ func (a *api) removeFromQueue(w http.ResponseWriter, r *http.Request) error {
 		return queueError(err)
 	}
 	switch {
-	case u.Role.Has(rbac.QueueRemoveAny):
-	case u.Role.Has(rbac.QueueRemoveOwn) && item.AddedByID == u.ID:
-	case u.Role.Has(rbac.QueueRemoveOwn):
+	case u.Has(rbac.QueueRemoveAny):
+	case u.Has(rbac.QueueRemoveOwn) && item.AddedByID == u.ID:
+	case u.Has(rbac.QueueRemoveOwn):
 		return httpx.Forbidden("you can only remove songs you added")
 	default:
 		return httpx.Forbidden("role %q lacks permission %q", u.Role, rbac.QueueRemoveOwn)

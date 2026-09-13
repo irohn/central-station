@@ -47,6 +47,8 @@ type Deps struct {
 	Settings settings.Store // small admin settings (default chime)
 	Alerts   alerts.Store   // scheduled announcements (nil disables)
 	Mail     *mail.Client   // verification email; nil or unconfigured = admins verify
+	// Overrides holds per-user permission overrides (in-memory). Optional.
+	Overrides *auth.Overrides
 }
 
 type api struct {
@@ -56,6 +58,9 @@ type api struct {
 
 // Handler builds the v1 router. Mount it with http.StripPrefix("/api/v1", ...).
 func Handler(d Deps) http.Handler {
+	if d.Overrides == nil {
+		d.Overrides = auth.NewOverrides()
+	}
 	a := &api{Deps: d, loginLimiter: auth.NewLimiter(10, 15*time.Minute)}
 	mux := http.NewServeMux()
 
@@ -118,6 +123,7 @@ func Handler(d Deps) http.Handler {
 	zoned("GET /settings/fallback", a.perm(rbac.QueueRead, a.getFallback))
 	zoned("PUT /settings/fallback", a.perm(rbac.FallbackManage, a.putFallback))
 	zoned("POST /settings/fallback/refresh", a.perm(rbac.FallbackManage, a.refreshFallback))
+	zoned("POST /settings/fallback/reset", a.perm(rbac.FallbackManage, a.resetFallback))
 
 	// Clips are global; announcements go to a zone (or every zone).
 	mux.Handle("GET /clips", a.perm(rbac.BroadcastSend, a.listClips))
@@ -144,8 +150,12 @@ func Handler(d Deps) http.Handler {
 	zoned("GET /events/ws", auth.RequireAuth(httpx.HandlerFunc(a.eventsWS)))
 
 	// Users (admin)
-	mux.Handle("GET /users", a.perm(rbac.UsersManage, a.listUsers))
-	mux.Handle("PATCH /users/{id}", a.perm(rbac.UsersManage, a.updateUser))
+	// Everyone can see the list and rename themselves; roles, verification
+	// and permission overrides need users:manage.
+	mux.Handle("GET /users", auth.RequireAuth(httpx.HandlerFunc(a.listUsers)))
+	mux.Handle("PATCH /users/{id}", auth.RequireAuth(httpx.HandlerFunc(a.updateUser)))
+	mux.Handle("PUT /users/{id}/permissions", a.perm(rbac.UsersManage, a.setUserPermissions))
+	mux.Handle("DELETE /users/{id}/permissions", a.perm(rbac.UsersManage, a.clearUserPermissions))
 	mux.Handle("GET /roles", auth.RequireAuth(httpx.HandlerFunc(a.listRoles)))
 
 	mux.Handle("/", httpx.HandlerFunc(func(w http.ResponseWriter, r *http.Request) error {
@@ -156,6 +166,7 @@ func Handler(d Deps) http.Handler {
 		Sessions:       d.Sessions,
 		Users:          d.Users,
 		TrustedOrigins: append([]string{d.Config.FrontendURL, d.Config.BaseURL}, d.Config.AllowedOrigins...),
+		Overrides:      d.Overrides,
 	}
 	// The player socket authenticates with a zone's player token (or the
 	// legacy PLAYER_TOKEN), not a user session, so it is mounted outside the

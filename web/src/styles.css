@@ -95,7 +95,8 @@ h2 { font-size: 1.05rem; }
   background: var(--panel); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow);
 }
 .menu-user { display: flex; align-items: center; gap: 0.75rem; padding: 0.9rem 1rem; border-bottom: 1px solid var(--border); }
-.menu-close { display: inline-grid; place-items: center; width: 36px; height: 36px; padding: 0; border-radius: 50%; }
+.btn.icon.menu-close { display: inline-grid; place-items: center; width: 36px; height: 36px; min-width: 36px; min-height: 36px; padding: 0; margin: 0; line-height: 0; border-radius: 50%; flex: 0 0 auto; }
+.btn.icon.menu-close svg { display: block; width: 18px; height: 18px; }
 .menu-user-text { min-width: 0; flex: 1; }
 .menu-status { display: flex; align-items: flex-start; gap: 0.6rem; padding: 0.8rem 1rem; border-bottom: 1px solid var(--border); background: var(--panel-2); font-size: 0.92rem; }
 .menu-status .dot { margin-top: 0.35rem; }
@@ -362,3 +363,51 @@ textarea:focus { outline: none; border-color: var(--accent); }
 .fault { margin-top: 0.75rem; padding: 0.6rem 0.8rem; border-radius: 8px; border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); background: color-mix(in srgb, var(--warn) 12%, transparent); }
 .fault.output { border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 .fault strong { margin-right: 0.15rem; }
+
+/* Volume: icon only until hovered/tapped */
+.volume { position: relative; display: flex; align-items: center; gap: 0.5rem; margin-top: 0.5rem; min-height: 36px; }
+.btn.volume-toggle { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.3rem 0.5rem; color: var(--muted); background: none; border-color: transparent; }
+.btn.volume-toggle:hover, .volume.open .btn.volume-toggle { color: var(--text); border-color: var(--border); }
+.volume-controls { display: none; align-items: center; gap: 0.5rem; flex: 1; min-width: 0; }
+.volume-controls input[type="range"] { flex: 1; min-width: 120px; }
+.volume:hover .volume-controls, .volume:focus-within .volume-controls, .volume.open .volume-controls { display: flex; }
+.volume-value { min-width: 2.6em; text-align: right; }
+
+/* Spacing helpers */
+.mt { margin-top: 0.75rem; }
+
+/* Page settings gear (subpage header, right side) */
+.subpage-head .page-settings { margin-left: auto; width: 38px; height: 38px; padding: 0; display: inline-grid; place-items: center; border-radius: 50%; color: var(--muted); }
+.subpage-head .page-settings:hover, .subpage-head .page-settings.active { color: var(--text); background: var(--panel-2); }
+.settings-card { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.settings-card h3 { margin: 0.9rem 0 0.2rem; font-size: 0.95rem; }
+
+/* Clickable rows + context menu (History) */
+.track-row.clickable { cursor: pointer; border-radius: 8px; margin: 0 -0.5rem; padding-left: 0.5rem; padding-right: 0.5rem; }
+.track-row.clickable:hover, .track-row.clickable:focus-visible { background: var(--panel-2); outline: none; }
+.track-row.clickable .title { cursor: pointer; }
+.ctx-menu {
+  position: fixed; z-index: 40; min-width: 170px; padding: 0.3rem;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+}
+.ctx-item { display: block; width: 100%; padding: 0.5rem 0.7rem; border: 0; border-radius: 6px; background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.ctx-item:hover:not(:disabled) { background: var(--panel-2); }
+.ctx-item:disabled { color: var(--muted); cursor: default; }
+
+/* Top bar user button */
+.btn.user-link, .user-link { background: none; border: 0; padding: 0.2rem 0.4rem; border-radius: 999px; cursor: pointer; font: inherit; color: inherit; }
+.user-link:hover { background: var(--panel-2); }
+
+/* Users page */
+.user-row-wrap { border-top: 1px solid var(--border); }
+.user-row-wrap:first-child { border-top: 0; }
+.user-row-wrap .user-row { border-top: 0; }
+.pill.warn-pill { background: color-mix(in srgb, var(--warn) 15%, transparent); color: var(--warn); }
+.perm-editor { padding: 0 0 0.9rem 0; }
+.perm-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0.3rem 1rem; margin: 0.4rem 0; }
+.perm-item { display: flex; align-items: center; gap: 0.45rem; }
+.perm-item input { flex: none; }
+
+/* Zone edit form */
+.zone-edit { display: flex; flex-direction: column; gap: 0.5rem; margin: 0.2rem 0 0.4rem; }
+.zone-edit .field-inline input, .zone-edit .field-inline select { flex: 1; min-width: 0; }

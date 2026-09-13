@@ -117,7 +117,7 @@ All endpoints are under `/api/v1` and return JSON. Errors have one shape:
 | GET | `/api/v1/providers` | signed in | registered providers, default marked |
 | POST | `/api/v1/tracks/resolve` | `track:resolve` | resolve URL / search without queueing |
 | GET | `/api/v1/queue` | `queue:read` | status, current item, queued items |
-| POST | `/api/v1/queue` | `queue:add` | body `{"input": "...", "provider": "youtube"}` |
+| POST | `/api/v1/queue` | `queue:add` | body `{"input": "...", "provider": "youtube"}`; `"playNext": true` (`queue:reorder`) or `"playNow": true` (`playback:control`) jump the queue |
 | DELETE | `/api/v1/queue/{id}` | `queue:remove_own` / `queue:remove_any` | collaborators only their own |
 | PATCH | `/api/v1/queue/{id}` | `queue:reorder` | body `{"position": 0}` |
 | GET | `/api/v1/history?limit=50` | `history:read` | newest first |
@@ -133,8 +133,9 @@ All endpoints are under `/api/v1` and return JSON. Errors have one shape:
 | POST | `/api/v1/zones/{zone}/token` | `integrations:manage` | issue a new player token |
 | any | `/api/v1/zones/{zone}/queue`, `/history`, `/playback/*`, `/settings/fallback*`, `/broadcasts`, `/player`, `/events/ws` | as above | zone-scoped forms of the routes above |
 | GET | `/api/v1/events/ws` | signed in | live queue/player events for browsers |
-| GET | `/api/v1/users` | `users:manage` | |
-| PATCH | `/api/v1/users/{id}` | `users:manage` | body `{"role": "collaborator"}` |
+| GET | `/api/v1/users` | signed in | |
+| PATCH | `/api/v1/users/{id}` | signed in / `users:manage` | `{"name": "..."}` (own name for anyone), `{"role": "..."}` / `{"emailVerified": true}` (admins) |
+| PUT / DELETE | `/api/v1/users/{id}/permissions` | `users:manage` | replace / reset a user's permissions for the running API instance (not persisted) |
 
 ### Input resolution
 
@@ -234,11 +235,16 @@ API: `GET/POST /clips`, `POST /clips/tts`, `GET /clips/{id}/audio`,
 `GET /broadcasts`.
 
 The `tts` image (`tts/`) wraps [Piper](https://github.com/OHF-Voice/piper1-gpl)
-with six bundled voices (US and British English, female and male; the default
-is `en_US-hfc_female-medium`, a natural American voice). `GET /voices` on the
-service lists them; admins choose the default (`PUT /settings/tts`) and every
-typed announcement can pick one. Models load on first use and only the two most
-recently used stay in memory. Set `TTS_URL` on the API to enable typed
+with fourteen bundled voices: twelve US English (Norman, Amy, Hannah, Henry,
+Joe, Kristin, Mike, Ryan, Leslie, Libby, Liberty, Lina) and two British (Jenny,
+Alan). The default is Norman (`en_US-norman-medium`). The friendly names and
+the speaker picked from Piper's multi-speaker models live in `tts/server.py`;
+the id list is the `PIPER_VOICES` build arg in `tts/Dockerfile` (samples:
+https://rhasspy.github.io/piper-samples/). `GET /voices` on the service lists
+them; admins choose the default (`PUT /settings/tts`) and every typed
+announcement can pick one. Models load on first use and only the two most
+recently used stay in memory; the "high" models need roughly twice the memory
+of "medium" ones, so give the service about 1.5 GB when two can be loaded. Set `TTS_URL` on the API to enable typed
 announcements; `POST /clips/tts/preview` synthesises without saving.
 
 Storage is bounded: at most `CLIPS_MAX_SAVED` user clips (default 50, bundled
@@ -320,6 +326,10 @@ equals whatever the host mixer is set to. Everyone sees the current level in the
 player status.
 
 ### Default playlist
+
+`POST /settings/fallback/reset` restores the playlist configured on the server
+(`FALLBACK_PLAYLIST_URL`); the response of `GET /settings/fallback` carries it
+as `envDefault` so the UI can offer "Reset to default".
 
 When the queue is empty the player falls back to a configurable YouTube playlist
 so the office never goes silent. Tracks it plays are marked `source: "fallback"`

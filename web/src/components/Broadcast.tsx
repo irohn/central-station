@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useZone } from "../zone";
 import { api, ApiError } from "../api";
 import type { Clip, ClipsResponse, PlayerStatus, User, Voice, ZoneSummary } from "../types";
-import { Megaphone, Mic, Play, Square, Trash } from "./Icons";
+import { Megaphone, Mic, Play, Square, Trash, X } from "./Icons";
 
 type Source = "record" | "type" | "saved";
 
@@ -30,7 +30,7 @@ function PreviewButton({ clipId, src }: { clipId?: string; src?: string }) {
   );
 }
 
-export function Broadcast({ user, player, zones }: { user: User; player: PlayerStatus; zones: ZoneSummary[] }) {
+export function Broadcast({ user, player, zones, settingsOpen, onCloseSettings }: { user: User; player: PlayerStatus; zones: ZoneSummary[]; settingsOpen: boolean; onCloseSettings: () => void }) {
   const isAdmin = user.permissions.includes("settings:manage");
   const [info, setInfo] = useState<ClipsResponse | null>(null);
   const [source, setSource] = useState<Source>("record");
@@ -200,8 +200,57 @@ export function Broadcast({ user, player, zones }: { user: User; player: PlayerS
 
   if (!info && !error) return <div className="center muted">Loading…</div>;
 
+  const settings = isAdmin && settingsOpen && (
+    <section className="card settings-card">
+      <div className="row space-between">
+        <h2>Broadcast defaults</h2>
+        <button className="btn icon" type="button" title="Close" aria-label="Close settings" onClick={onCloseSettings}><X width={16} height={16} /></button>
+      </div>
+      {info?.ttsAvailable && voices.length > 0 && (
+        <>
+          <h3>Default voice</h3>
+          <p className="muted small">Used for typed announcements that do not pick another voice.</p>
+          <ul className="clip-list">
+            {voices.map((v) => (
+              <li key={v.id} className="clip-row">
+                <label className="clip-select radio">
+                  <input type="radio" name="default-voice" checked={info?.defaultVoice === v.id} onChange={async () => { try { await api("PUT", "/settings/tts", { voice: v.id }); await load(); } catch (e) { fail(e); } }} />
+                  <span className="strong">{v.label}</span>
+                  <span className="muted small">{v.id}</span>
+                </label>
+                <button className="btn icon" type="button" title="Listen" aria-label={`Listen to ${v.label}`} disabled={busy !== null} onClick={() => previewVoice("Hello everyone, this is the Central Station announcement voice.", v.id)}>
+                  <Play width={16} height={16} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+      <h3>Default chime</h3>
+      <p className="muted small">Plays before every announcement that does not pick another one.</p>
+      <ul className="clip-list">
+        {chimes.map((c) => (
+          <li key={c.id} className="clip-row">
+            <label className="clip-select radio">
+              <input type="radio" name="default-chime" checked={info?.defaultChimeId === c.id} onChange={() => setDefaultChime(c.id)} />
+              <span className="strong">{c.name}</span>
+              <span className="muted small">{c.builtin ? "built-in" : c.createdByName} · {fmtDur(c.durationSeconds)}</span>
+            </label>
+            <PreviewButton clipId={c.id} />
+            {!c.builtin && <button className="btn icon danger" type="button" title="Delete" onClick={() => remove(c)}><Trash width={16} height={16} /></button>}
+          </li>
+        ))}
+      </ul>
+      <label className="btn upload-btn">
+        {busy === "chime" ? "Uploading…" : "Upload a chime"}
+        <input type="file" accept="audio/*" hidden disabled={busy !== null} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadChime(f); e.target.value = ""; }} />
+      </label>
+    </section>
+  );
+
   return (
     <>
+      {settings}
       <section className="card">
         <div className="row space-between wrap">
           <h2>Send an announcement</h2>
@@ -268,7 +317,7 @@ export function Broadcast({ user, player, zones }: { user: User; player: PlayerS
                 <Play width={16} height={16} /> {busy === "preview" ? "Generating…" : "Listen"}
               </button>
             </div>
-            <div className="row wrap">
+            <div className="row wrap mt">
               <input placeholder="Name (optional)" value={ttsName} onChange={(e) => setTtsName(e.target.value)} />
               <button className="btn" type="button" disabled={!text.trim() || busy !== null || atCap} onClick={createTTS}>{busy === "tts" ? "Generating…" : "Save clip"}</button>
             </div>
@@ -343,50 +392,6 @@ export function Broadcast({ user, player, zones }: { user: User; player: PlayerS
         {ok && <p className="ok small">{ok}</p>}
       </section>
 
-      {isAdmin && info?.ttsAvailable && voices.length > 0 && (
-        <section className="card">
-          <h2>Voices</h2>
-          <p className="muted small">The default voice is used for typed announcements that do not pick another one. Listen plays a short sample.</p>
-          <ul className="clip-list">
-            {voices.map((v) => (
-              <li key={v.id} className="clip-row">
-                <label className="clip-select radio">
-                  <input type="radio" name="default-voice" checked={info?.defaultVoice === v.id} onChange={async () => { try { await api("PUT", "/settings/tts", { voice: v.id }); await load(); } catch (e) { fail(e); } }} />
-                  <span className="strong">{v.label}</span>
-                  <span className="muted small">{v.id}</span>
-                </label>
-                <button className="btn icon" type="button" title="Listen" aria-label={`Listen to ${v.label}`} disabled={busy !== null} onClick={() => previewVoice("Hello everyone, this is the Central Station announcement voice.", v.id)}>
-                  <Play width={16} height={16} />
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {isAdmin && (
-        <section className="card">
-          <h2>Chimes</h2>
-          <p className="muted small">The default chime plays before every announcement that does not pick another one.</p>
-          <ul className="clip-list">
-            {chimes.map((c) => (
-              <li key={c.id} className="clip-row">
-                <label className="clip-select radio">
-                  <input type="radio" name="default-chime" checked={info?.defaultChimeId === c.id} onChange={() => setDefaultChime(c.id)} />
-                  <span className="strong">{c.name}</span>
-                  <span className="muted small">{c.builtin ? "built-in" : c.createdByName} · {fmtDur(c.durationSeconds)}</span>
-                </label>
-                <PreviewButton clipId={c.id} />
-                {!c.builtin && <button className="btn icon danger" type="button" title="Delete" onClick={() => remove(c)}><Trash width={16} height={16} /></button>}
-              </li>
-            ))}
-          </ul>
-          <label className="btn upload-btn">
-            {busy === "chime" ? "Uploading…" : "Upload a chime"}
-            <input type="file" accept="audio/*" hidden disabled={busy !== null} onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadChime(f); e.target.value = ""; }} />
-          </label>
-        </section>
-      )}
     </>
   );
 }

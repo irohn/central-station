@@ -20,7 +20,7 @@ export function FallbackSettings({ user }: { user: User }) {
   const [url, setUrl] = useState("");
   const [enabled, setEnabled] = useState(false);
   const [shuffle, setShuffle] = useState(true);
-  const [busy, setBusy] = useState<"save" | "refresh" | null>(null);
+  const [busy, setBusy] = useState<"save" | "refresh" | "reset" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -70,7 +70,26 @@ export function FallbackSettings({ user }: { user: User }) {
     }
   }
 
+  async function reset() {
+    if (!view?.envDefault) return;
+    if (!window.confirm("Restore the default playlist configured on the server? The current playlist setting is replaced.")) return;
+    setBusy("reset");
+    setError(null);
+    setOk(null);
+    try {
+      const v = await zapi<FallbackView>("POST", "/settings/fallback/reset");
+      apply(v);
+      setOk(v.playlist ? `Restored the default: "${v.playlist.title}".` : "Restored the default.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   if (!view && !error) return <div className="center muted">Loading…</div>;
+  const env = view?.envDefault;
+  const isEnvDefault = !!env && !!view && view.url === env.url && view.enabled === env.enabled && view.shuffle === env.shuffle;
 
   const pl = view?.playlist;
   const tracks = pl?.tracks ?? [];
@@ -99,9 +118,14 @@ export function FallbackSettings({ user }: { user: User }) {
         <Switch label="Shuffle" hint="Random order, no repeats until every track has played" checked={shuffle} disabled={!canManage || busy !== null} onChange={setShuffle} />
 
         {canManage && (
-          <div className="row form-actions">
+          <div className="row form-actions wrap">
             <button className="btn primary" type="submit" disabled={!dirty || busy !== null}>{busy === "save" ? "Saving…" : "Save"}</button>
             {dirty && <button className="btn link" type="button" disabled={busy !== null} onClick={() => view && apply(view)}>Discard</button>}
+            {env && (
+              <button className="btn" type="button" title={isEnvDefault ? "The server default is already in use" : `Restore ${env.url}`} disabled={busy !== null || isEnvDefault} onClick={reset}>
+                {busy === "reset" ? "Restoring…" : "Reset to default"}
+              </button>
+            )}
           </div>
         )}
         {busy === "save" && <p className="muted small">Fetching the playlist from YouTube, this can take a few seconds…</p>}

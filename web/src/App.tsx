@@ -17,9 +17,8 @@ import { Broadcast } from "./components/Broadcast";
 import { Alerts } from "./components/Alerts";
 import { Account } from "./components/Account";
 import type { AuthMethods } from "./types";
-import { Megaphone } from "./components/Icons";
+import { ChevronLeft, Gear, Megaphone } from "./components/Icons";
 import { ThemeToggle } from "./components/ThemeToggle";
-import { ChevronLeft } from "./components/Icons";
 import { useTheme } from "./theme";
 
 type View = "queue" | "history" | "users" | "fallback" | "broadcast" | "alerts" | "account" | "zones";
@@ -40,6 +39,9 @@ export default function App() {
   const [theme, toggleTheme] = useTheme();
   const [methods, setMethods] = useState<AuthMethods | null>(null);
   const [resent, setResent] = useState<string | null>(null);
+  // Per-page settings panel (gear in the page header); closes when the page changes.
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const go = (v: View) => { setSettingsOpen(false); setView(v); };
 
   useEffect(() => {
     api<User>("GET", "/me")
@@ -82,16 +84,17 @@ export default function App() {
     );
   }
 
-  const isAdmin = user.permissions.includes("users:manage");
   const canManageFallback = user.permissions.includes("fallback:manage");
   const canBroadcast = user.permissions.includes("broadcast:send");
   const canAlerts = user.permissions.includes("alerts:manage");
-  const canZones = user.permissions.includes("integrations:manage");
+  const canZones = user.permissions.includes("integrations:manage") || user.permissions.includes("output:control");
   // Fall back to the queue when the role cannot use the requested page (e.g. after a role change).
   const view: View =
-    (requestedView === "users" && !isAdmin) || (requestedView === "fallback" && !canManageFallback) || (requestedView === "broadcast" && !canBroadcast) || (requestedView === "alerts" && !canAlerts) || (requestedView === "zones" && !canZones)
+    (requestedView === "fallback" && !canManageFallback) || (requestedView === "broadcast" && !canBroadcast) || (requestedView === "alerts" && !canAlerts) || (requestedView === "zones" && !canZones)
       ? "queue" : requestedView;
   const subpage = view !== "queue" && view !== "history";
+  // Pages that have a settings panel behind the gear in their header.
+  const hasSettings = view === "broadcast" && user.permissions.includes("settings:manage");
 
   if (!zones) return <div className="center muted">Loading…</div>;
   if (!zoneId) return <div className="center muted">No zones are configured. Ask an admin to add one.</div>;
@@ -101,15 +104,15 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <nav className="tabs" aria-label="Main">
-          <button className={view === "queue" ? "active" : ""} onClick={() => setView("queue")}>Queue</button>
-          <button className={view === "history" ? "active" : ""} onClick={() => setView("history")}>History</button>
+          <button className={view === "queue" ? "active" : ""} onClick={() => go("queue")}>Queue</button>
+          <button className={view === "history" ? "active" : ""} onClick={() => go("history")}>History</button>
         </nav>
-        <ZoneSwitcher zones={zones} zoneId={zoneId} onSelect={selectZone} onManage={canZones ? () => setView("zones") : undefined} />
+        <ZoneSwitcher zones={zones} zoneId={zoneId} onSelect={selectZone} onManage={canZones ? () => go("zones") : undefined} />
         <div className="topbar-right">
-          <div className="user" title={`${user.name} · ${user.role}`}>
+          <button className="user user-link" type="button" title={`${user.name} · ${user.role} · open Users`} onClick={() => go("users")}>
             {user.pictureUrl ? <img src={user.pictureUrl} alt="" className="avatar" /> : <span className="avatar initial">{user.name.slice(0, 1)}</span>}
             <span className="user-name">{user.name}</span>
-          </div>
+          </button>
           <SettingsMenu
             user={user}
             player={player}
@@ -117,7 +120,7 @@ export default function App() {
             connected={connected}
             theme={theme}
             onToggleTheme={toggleTheme}
-            onNavigate={setView}
+            onNavigate={go}
             onLogout={logout}
           />
         </div>
@@ -141,8 +144,13 @@ export default function App() {
       <main>
         {subpage && (
           <div className="subpage-head">
-            <button className="btn icon back" onClick={() => setView("queue")} aria-label="Back to queue"><ChevronLeft /></button>
+            <button className="btn icon back" onClick={() => go("queue")} aria-label="Back to queue"><ChevronLeft /></button>
             <h1>{subpageTitles[view]}{view === "fallback" || view === "broadcast" ? <span className="muted"> · {zone?.name}</span> : null}</h1>
+            {hasSettings && (
+              <button className={`btn icon page-settings${settingsOpen ? " active" : ""}`} type="button" title="Page settings" aria-label="Page settings" aria-pressed={settingsOpen} onClick={() => setSettingsOpen((o) => !o)}>
+                <Gear width={18} height={18} />
+              </button>
+            )}
           </div>
         )}
 
@@ -150,16 +158,16 @@ export default function App() {
           <>
             <NowPlaying queue={queue} player={player} user={user} />
             <QueueList queue={queue} user={user} onAdded={setQueue} />
-            <PlaylistsCard queue={queue} user={user} onManage={() => setView("fallback")} />
+            <PlaylistsCard queue={queue} user={user} onManage={() => go("fallback")} />
           </>
         )}
         {view === "queue" && !queue && <div className="center muted">Loading queue…</div>}
-        {view === "history" && <History version={queue?.updatedAt ?? ""} />}
-        {view === "users" && isAdmin && <Users me={user} />}
+        {view === "history" && <History version={queue?.updatedAt ?? ""} user={user} />}
+        {view === "users" && <Users me={user} onMeChanged={setUser} />}
         {view === "fallback" && canManageFallback && <FallbackSettings user={user} />}
-        {view === "broadcast" && canBroadcast && <Broadcast user={user} player={player} zones={zones} />}
+        {view === "broadcast" && canBroadcast && <Broadcast user={user} player={player} zones={zones} settingsOpen={settingsOpen} onCloseSettings={() => setSettingsOpen(false)} />}
         {view === "alerts" && canAlerts && <Alerts zones={zones} zoneId={zoneId} />}
-        {view === "zones" && canZones && <ZonesPage zones={zones} zoneId={zoneId} onSelect={selectZone} />}
+        {view === "zones" && canZones && <ZonesPage zones={zones} zoneId={zoneId} user={user} onSelect={selectZone} />}
         {view === "account" && <Account user={user} />}
       </main>
     </div>

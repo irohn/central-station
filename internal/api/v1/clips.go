@@ -372,7 +372,7 @@ func (a *api) deleteClip(w http.ResponseWriter, r *http.Request) error {
 	if c.Builtin {
 		return httpx.Forbidden("bundled chimes cannot be deleted")
 	}
-	if c.CreatedByID != u.ID && !u.Role.Has(rbac.SettingsManage) {
+	if c.CreatedByID != u.ID && !u.Has(rbac.SettingsManage) {
 		return httpx.Forbidden("you can only delete clips you created")
 	}
 	if err := a.Clips.Delete(r.Context(), c.ID); err != nil {

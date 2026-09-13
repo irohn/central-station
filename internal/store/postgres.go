@@ -21,13 +21,13 @@ type Postgres struct {
 // NewPostgres wraps a connection pool.
 func NewPostgres(pool *pgxpool.Pool) *Postgres { return &Postgres{pool: pool} }
 
-const userCols = `id, email, name, picture_url, role, google_sub, created_at, last_login_at, password_hash, email_verified, verify_token, verify_expires`
+const userCols = `id, email, name, picture_url, role, google_sub, created_at, last_login_at, password_hash, email_verified, verify_token, verify_expires, display_name`
 
 func scanUser(row pgx.Row) (*User, error) {
 	u := &User{}
 	var role string
 	var verifyExpires *time.Time
-	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PictureURL, &role, &u.GoogleSub, &u.CreatedAt, &u.LastLoginAt, &u.PasswordHash, &u.EmailVerified, &u.VerifyToken, &verifyExpires)
+	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.PictureURL, &role, &u.GoogleSub, &u.CreatedAt, &u.LastLoginAt, &u.PasswordHash, &u.EmailVerified, &u.VerifyToken, &verifyExpires, &u.DisplayName)
 	if verifyExpires != nil {
 		u.VerifyExpires = *verifyExpires
 	}
@@ -38,6 +38,7 @@ func scanUser(row pgx.Row) (*User, error) {
 		return nil, err
 	}
 	u.Role = rbac.Role(role)
+	u.applyDisplayName()
 	return u, nil
 }
 
@@ -144,6 +145,13 @@ func (p *Postgres) TouchLogin(ctx context.Context, id string) error {
 	}
 	_, err := p.pool.Exec(ctx, `UPDATE users SET last_login_at = now() WHERE id = $1`, id)
 	return err
+}
+
+func (p *Postgres) SetDisplayName(ctx context.Context, id, name string) (*User, error) {
+	if _, err := uuid.Parse(id); err != nil {
+		return nil, ErrNotFound
+	}
+	return scanUser(p.pool.QueryRow(ctx, `UPDATE users SET display_name = $2 WHERE id = $1 RETURNING `+userCols, id, strings.TrimSpace(name)))
 }
 
 func (p *Postgres) SetRole(ctx context.Context, id string, role rbac.Role) (*User, error) {

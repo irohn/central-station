@@ -15,13 +15,49 @@ import (
 // resolveTimeout bounds the synchronous playlist fetch done by PUT / refresh.
 const resolveTimeout = 25 * time.Second
 
+// fallbackResponse is a View plus the server-configured default (from
+// FALLBACK_PLAYLIST_URL), which "Reset" restores.
+type fallbackResponse struct {
+	fallback.View
+	EnvDefault *fallback.Settings `json:"envDefault,omitempty"`
+}
+
+func (a *api) fallbackView(v fallback.View) fallbackResponse {
+	out := fallbackResponse{View: v}
+	if a.Config.FallbackPlaylistURL != "" {
+		out.EnvDefault = &fallback.Settings{URL: a.Config.FallbackPlaylistURL, Enabled: true, Shuffle: a.Config.FallbackShuffle}
+	}
+	return out
+}
+
 // GET /settings/fallback  (any signed-in user)
 func (a *api) getFallback(w http.ResponseWriter, r *http.Request) error {
 	rt, err := a.rt(r)
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, rt.Fallback.Get())
+	httpx.JSON(w, http.StatusOK, a.fallbackView(rt.Fallback.Get()))
+	return nil
+}
+
+// POST /settings/fallback/reset  restores the playlist configured on the server.
+func (a *api) resetFallback(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
+	if a.Config.FallbackPlaylistURL == "" {
+		return httpx.Conflict("no_default_configured", "no default playlist is configured on the server (FALLBACK_PLAYLIST_URL)")
+	}
+	before := rt.Fallback.Get()
+	ctx, cancel := context.WithTimeout(r.Context(), resolveTimeout)
+	defer cancel()
+	view, err := rt.Fallback.Update(ctx, fallback.Settings{URL: a.Config.FallbackPlaylistURL, Enabled: true, Shuffle: a.Config.FallbackShuffle})
+	if err != nil {
+		return fallbackError(err)
+	}
+	a.applyFallbackChange(r, rt, before, view)
+	httpx.JSON(w, http.StatusOK, a.fallbackView(view))
 	return nil
 }
 
@@ -47,7 +83,7 @@ func (a *api) putFallback(w http.ResponseWriter, r *http.Request) error {
 		return fallbackError(err)
 	}
 	a.applyFallbackChange(r, rt, before, view)
-	httpx.JSON(w, http.StatusOK, view)
+	httpx.JSON(w, http.StatusOK, a.fallbackView(view))
 	return nil
 }
 
@@ -66,7 +102,7 @@ func (a *api) refreshFallback(w http.ResponseWriter, r *http.Request) error {
 	if err := rt.Queue.Nudge(r.Context()); err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, view)
+	httpx.JSON(w, http.StatusOK, a.fallbackView(view))
 	return nil
 }
 

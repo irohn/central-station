@@ -89,9 +89,17 @@ func init() {
 
 func newTestAPI(t *testing.T) *testAPI {
 	t.Helper()
-	cfg, err := config.LoadFrom(func(k string) string {
-		return map[string]string{"AUTH_DEV_MODE": "true", "ADMIN_EMAILS": "root@example.com", "PLAYER_TOKEN": "test-player-token-123"}[k]
-	})
+	return newTestAPIWith(t, nil)
+}
+
+// newTestAPIWith builds the test API with extra environment values.
+func newTestAPIWith(t *testing.T, extra map[string]string) *testAPI {
+	t.Helper()
+	env := map[string]string{"AUTH_DEV_MODE": "true", "ADMIN_EMAILS": "root@example.com", "PLAYER_TOKEN": "test-player-token-123"}
+	for k, v := range extra {
+		env[k] = v
+	}
+	cfg, err := config.LoadFrom(func(k string) string { return env[k] })
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -307,8 +315,11 @@ func TestUserManagement(t *testing.T) {
 	admin, adminID := a.login("root@example.com", "") // ADMIN_EMAILS grants admin
 	mgr, mgrID := a.login("mgr@example.com", "manager")
 
-	if r := a.do("GET", "/users", mgr, nil); r.Status != 403 {
+	if r := a.do("GET", "/users", mgr, nil); r.Status != 200 {
 		t.Fatalf("manager list users: %d", r.Status)
+	}
+	if r := a.do("PATCH", "/users/"+adminID, mgr, map[string]string{"role": "listener"}); r.Status != 403 {
+		t.Fatalf("manager change role: %d", r.Status)
 	}
 	r := a.do("GET", "/users", admin, nil)
 	if r.Status != 200 || len(r.Body["users"].([]any)) != 2 {

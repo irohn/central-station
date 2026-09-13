@@ -118,3 +118,12 @@ export const Check = (p: SVGProps<SVGSVGElement>) => (
 export const Plus = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base(p)}><path d="M5 12h14" /><path d="M12 5v14" /></svg>
 );
+
+export const Pencil = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}>
+    <path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z" /><path d="m15 5 4 4" />
+  </svg>
+);
+export const MoreVertical = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base(p)}><circle cx="12" cy="12" r="1" /><circle cx="12" cy="5" r="1" /><circle cx="12" cy="19" r="1" /></svg>
+);

@@ -17,10 +17,13 @@ type userDTO struct {
 	*store.User
 	Permissions []rbac.Permission `json:"permissions"`
 	HasPassword bool              `json:"hasPassword"`
+	// PermissionsOverridden is true while an admin has replaced this user's
+	// permissions for the running API instance.
+	PermissionsOverridden bool `json:"permissionsOverridden"`
 }
 
 func toUserDTO(u *store.User) userDTO {
-	return userDTO{User: u, Permissions: u.Role.Permissions(), HasPassword: u.HasPassword()}
+	return userDTO{User: u, Permissions: u.Permissions(), HasPassword: u.HasPassword(), PermissionsOverridden: u.PermissionsOverridden()}
 }
 
 // GET /auth/google/login?redirect=/somewhere

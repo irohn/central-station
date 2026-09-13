@@ -70,3 +70,35 @@ func TestFallbackSettingsEndpoints(t *testing.T) {
 		t.Fatalf("refresh: %d %v", r.Status, r.Body)
 	}
 }
+
+func TestFallbackReset(t *testing.T) {
+	// Without a server default, reset is refused and envDefault is absent.
+	a := newTestAPI(t)
+	mgr, _ := a.login("m@example.com", "manager")
+	if r := a.do("GET", "/settings/fallback", mgr, nil); r.Body["envDefault"] != nil {
+		t.Fatalf("envDefault without config: %v", r.Body)
+	}
+	if r := a.do("POST", "/settings/fallback/reset", mgr, nil); r.Status != 409 || errCode(r) != "no_default_configured" {
+		t.Fatalf("reset without config: %d %v", r.Status, r.Body)
+	}
+
+	// With FALLBACK_PLAYLIST_URL set, reset restores it after a manager changed it.
+	b := newTestAPIWith(t, map[string]string{"FALLBACK_PLAYLIST_URL": "https://www.youtube.com/playlist?list=PLdefault", "FALLBACK_SHUFFLE": "false"})
+	mgr2, _ := b.login("m@example.com", "manager")
+	r := b.do("GET", "/settings/fallback", mgr2, nil)
+	env, _ := r.Body["envDefault"].(map[string]any)
+	if env == nil || env["url"] != "https://www.youtube.com/playlist?list=PLdefault" || env["shuffle"] != false {
+		t.Fatalf("envDefault: %v", r.Body)
+	}
+	if r := b.do("PUT", "/settings/fallback", mgr2, map[string]any{"url": "https://www.youtube.com/playlist?list=PLother", "enabled": true, "shuffle": true}); r.Status != 200 {
+		t.Fatalf("change: %d %v", r.Status, r.Body)
+	}
+	r = b.do("POST", "/settings/fallback/reset", mgr2, nil)
+	if r.Status != 200 || r.Body["url"] != "https://www.youtube.com/playlist?list=PLdefault" || r.Body["enabled"] != true || r.Body["shuffle"] != false {
+		t.Fatalf("reset: %d %v", r.Status, r.Body)
+	}
+	col, _ := b.login("c@example.com", "collaborator")
+	if r := b.do("POST", "/settings/fallback/reset", col, nil); r.Status != 403 {
+		t.Fatalf("collaborator reset: %d", r.Status)
+	}
+}

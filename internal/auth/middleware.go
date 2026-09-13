@@ -40,6 +40,8 @@ type Authenticator struct {
 	// TrustedOrigins are the origins allowed to make cookie-authenticated
 	// state-changing requests (CSRF protection).
 	TrustedOrigins []string
+	// Overrides holds per-user permission overrides (optional).
+	Overrides *Overrides
 }
 
 // Middleware attaches the user (if any) to the request context. It never
@@ -77,6 +79,9 @@ func (a *Authenticator) Middleware(next http.Handler) http.Handler {
 		if viaCookie && !isSafeMethod(r.Method) && !a.originTrusted(r) {
 			httpx.WriteError(w, r, httpx.Forbidden("cross-site request rejected"))
 			return
+		}
+		if a.Overrides != nil {
+			a.Overrides.Apply(u, u.ID)
 		}
 		ctx := context.WithValue(r.Context(), ctxUser, u)
 		ctx = context.WithValue(ctx, ctxViaCookie, viaCookie)
@@ -148,7 +153,7 @@ func RequirePermission(p rbac.Permission) func(http.Handler) http.Handler {
 				httpx.WriteError(w, r, httpx.Unauthorized("authentication required"))
 				return
 			}
-			if !u.Role.Has(p) {
+			if !u.Has(p) {
 				httpx.WriteError(w, r, httpx.Forbidden("role %q lacks permission %q", u.Role, p).WithDetails(map[string]any{"requiredPermission": p, "role": u.Role}))
 				return
 			}
