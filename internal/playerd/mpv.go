@@ -46,6 +46,7 @@ type MPV struct {
 	nextID  atomic.Int64
 	writeMu sync.Mutex
 	closed  chan struct{}
+	closing atomic.Bool // set by Close so a deliberate exit is not logged as an error
 }
 
 // StartMPV launches mpv in idle mode with an IPC socket and connects to it.
@@ -94,13 +95,17 @@ func StartMPV(ctx context.Context, logger *slog.Logger, socketPath string, extra
 	go m.readLoop()
 	go func() {
 		err := cmd.Wait()
-		logger.Error("mpv exited", "err", err)
+		if m.closing.Load() {
+			logger.Info("mpv stopped")
+		} else {
+			logger.Error("mpv exited", "err", err)
+		}
 		close(m.closed)
 		conn.Close()
 	}()
 
 	// Observe the properties we care about.
-	for i, p := range []string{"time-pos", "duration", "pause", "idle-active", "audio-device-list", "audio-device"} {
+	for i, p := range []string{"time-pos", "duration", "pause", "idle-active", "audio-device-list", "audio-device", "current-ao"} {
 		if _, err := m.Command(ctx, "observe_property", i+1, p); err != nil {
 			return nil, fmt.Errorf("observe %s: %w", p, err)
 		}
@@ -269,6 +274,7 @@ func (m *MPV) GetString(ctx context.Context, prop string) string {
 
 // Close terminates mpv.
 func (m *MPV) Close() {
+	m.closing.Store(true)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, _ = m.Command(ctx, "quit")

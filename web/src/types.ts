@@ -130,9 +130,18 @@ export interface PlayerStatus {
   activeAudioDevice?: string;
   /** The requested device was not found; the player fell back to auto. */
   audioDeviceMissing?: boolean;
+  /** Set while the server paused the zone because of a problem. */
+  fault?: PlayerFault;
   /** Announcement playing over the music right now. */
   broadcast?: BroadcastStatus;
   broadcastsQueued: number;
+}
+
+export interface PlayerFault {
+  /** "output": no usable audio output (auto-resumes); "playback": tracks keep failing (resume manually). */
+  kind: "output" | "playback";
+  message: string;
+  since: string;
 }
 
 export interface AudioDevice {

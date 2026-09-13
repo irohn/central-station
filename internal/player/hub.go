@@ -82,6 +82,11 @@ type Hub struct {
 	active      *Broadcast
 	activeAt    time.Time
 	pending     []*Broadcast
+
+	// halted is true while the hub itself paused the queue for a fault;
+	// consecutiveErrors counts back-to-back track failures.
+	halted            bool
+	consecutiveErrors int
 }
 
 // SendBroadcast queues an announcement; it starts at once when none is
@@ -367,8 +372,21 @@ func (h *Hub) ServePlayer(w http.ResponseWriter, r *http.Request) {
 	h.mu.Lock()
 	old := h.player
 	h.player = c
-	h.status = Status{Online: true, ConnectedAt: time.Now(), LastSeenAt: time.Now(), Volume: h.volume, AudioDevice: h.audioDevice, AudioDevices: []AudioDevice{}}
+	prevFault := h.status.Fault
+	resume := prevFault != nil && prevFault.Kind == "output" && h.halted
+	if resume {
+		h.halted = false
+		prevFault = nil
+	}
+	h.status = Status{Online: true, ConnectedAt: time.Now(), LastSeenAt: time.Now(), Volume: h.volume, AudioDevice: h.audioDevice, AudioDevices: []AudioDevice{}, Fault: prevFault}
 	h.mu.Unlock()
+	if resume {
+		// A (re)connected player may have working output again: try.
+		h.logger.Info("player reconnected while paused for an output fault; resuming")
+		if err := h.queue.Resume(context.Background()); err != nil && !errors.Is(err, queue.ErrNotPlaying) {
+			h.logger.Error("resume on reconnect", "err", err)
+		}
+	}
 	if old != nil {
 		h.logger.Info("player replaced by a new connection")
 		old.Close(websocket.StatusPolicyViolation, "replaced by another player")
@@ -383,7 +401,7 @@ func (h *Hub) ServePlayer(w http.ResponseWriter, r *http.Request) {
 		if h.player == c {
 			h.player = nil
 			h.active = nil // whatever was playing died with the connection; queued ones wait
-			h.status = Status{Online: false, LastSeenAt: time.Now(), LastError: h.status.LastError, Volume: h.volume, BroadcastsQueued: len(h.pending), AudioDevice: h.audioDevice, AudioDevices: []AudioDevice{}}
+			h.status = Status{Online: false, LastSeenAt: time.Now(), LastError: h.status.LastError, Volume: h.volume, BroadcastsQueued: len(h.pending), AudioDevice: h.audioDevice, AudioDevices: []AudioDevice{}, Fault: h.status.Fault}
 		}
 		h.mu.Unlock()
 		c.Close(websocket.StatusNormalClosure, "")
@@ -434,9 +452,59 @@ func (h *Hub) handlePlayerMessage(c *websocket.Conn, msg ClientMessage) {
 		h.status.ItemID = msg.ItemID
 		h.status.Position = msg.Position
 		h.status.Duration = msg.Duration
+		// A track that is audibly playing clears any fault and the error streak.
+		recovered := msg.ItemID != "" && msg.Position > 2 && h.status.Fault != nil
+		if msg.ItemID != "" && msg.Position > 2 {
+			h.consecutiveErrors = 0
+			h.status.Fault = nil
+			h.halted = false
+		}
 		st := h.status
 		h.mu.Unlock()
+		if recovered {
+			h.logger.Info("playback recovered", "itemId", msg.ItemID)
+			h.broadcastPlayer()
+			return
+		}
 		h.broadcast(Event{Type: "progress", Player: &st})
+		return
+	case "output_error":
+		// The player cannot open its audio output: hold the queue instead of
+		// burning through tracks. Retries happen on the player side.
+		first := h.status.Fault == nil || h.status.Fault.Kind != "output"
+		since := time.Now()
+		if !first {
+			since = h.status.Fault.Since // keep the time of the first failure, refresh the message
+		}
+		h.status.Fault = &Fault{Kind: "output", Message: msg.Error, Since: since}
+		h.status.ItemID = ""
+		h.status.Position = 0
+		h.mu.Unlock()
+		if first {
+			h.logger.Warn("audio output unavailable; pausing", "err", msg.Error)
+		}
+		h.holdQueue()
+		h.broadcastPlayer()
+		return
+	case "output_ok":
+		wasOutput := h.status.Fault != nil && h.status.Fault.Kind == "output"
+		if wasOutput {
+			h.status.Fault = nil
+		}
+		resume := wasOutput && h.halted
+		if resume {
+			h.halted = false
+		}
+		h.mu.Unlock()
+		if wasOutput {
+			h.logger.Info("audio output is back")
+		}
+		if resume {
+			if err := h.queue.Resume(context.Background()); err != nil && !errors.Is(err, queue.ErrNotPlaying) {
+				h.logger.Error("resume after output recovery", "err", err)
+			}
+		}
+		h.broadcastPlayer()
 		return
 	case "broadcast_ended":
 		if h.active == nil || h.active.ID != msg.BroadcastID {
@@ -457,10 +525,14 @@ func (h *Hub) handlePlayerMessage(c *websocket.Conn, msg ClientMessage) {
 	case "ended":
 		if msg.Reason == "error" {
 			h.status.LastError = msg.Error
+			h.consecutiveErrors++
 		} else {
 			h.status.LastError = ""
+			h.consecutiveErrors = 0
 		}
 		h.status.Position = 0
+		halted := h.halted
+		streak := h.consecutiveErrors
 		h.mu.Unlock()
 		cur := h.queue.Current()
 		if cur == nil || cur.ID != msg.ItemID {
@@ -468,18 +540,49 @@ func (h *Hub) handlePlayerMessage(c *websocket.Conn, msg ClientMessage) {
 			h.send(c, ServerMessage{Type: "state", State: h.desired()})
 			return
 		}
-		if msg.Reason == "error" {
-			h.logger.Warn("player failed to play item", "itemId", msg.ItemID, "err", msg.Error)
-			if _, err := h.queue.Fail(context.Background(), "player", msg.Error); err != nil {
-				h.logger.Error("record playback error", "err", err)
+		if msg.Reason != "error" {
+			if _, err := h.queue.Complete(context.Background(), "player"); err != nil {
+				h.logger.Error("advance queue", "err", err)
 			}
-		} else if _, err := h.queue.Complete(context.Background(), "player"); err != nil {
-			h.logger.Error("advance queue", "err", err)
+			return
+		}
+		h.logger.Warn("player failed to play item", "itemId", msg.ItemID, "err", msg.Error, "streak", streak)
+		if halted && h.queue.Snapshot().Status == queue.StatusPaused {
+			// Already held for a fault: the player retried and failed again.
+			// Do not skip on; the queue stays where it is.
+			return
+		}
+		if _, err := h.queue.Fail(context.Background(), "player", msg.Error); err != nil {
+			h.logger.Error("record playback error", "err", err)
+		}
+		if streak >= MaxConsecutiveErrors {
+			h.mu.Lock()
+			h.status.Fault = &Fault{Kind: "playback", Since: time.Now(),
+				Message: fmt.Sprintf("%d tracks in a row could not be played; last error: %s", streak, msg.Error)}
+			h.mu.Unlock()
+			h.logger.Warn("too many consecutive playback errors; pausing", "streak", streak)
+			h.holdQueue()
+			h.broadcastPlayer()
 		}
 		return
 	default:
 		h.mu.Unlock()
 	}
+}
+
+// holdQueue pauses the queue on the hub's own initiative (fault handling)
+// and remembers that it did, so recovery can resume it.
+func (h *Hub) holdQueue() {
+	if h.queue.Snapshot().Status != queue.StatusPlaying {
+		return
+	}
+	if err := h.queue.Pause(context.Background()); err != nil {
+		h.logger.Error("pause for fault", "err", err)
+		return
+	}
+	h.mu.Lock()
+	h.halted = true
+	h.mu.Unlock()
 }
 
 func (h *Hub) broadcastPlayer() {

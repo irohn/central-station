@@ -40,15 +40,19 @@ func main() {
 		mpvArgs = append(mpvArgs, strings.Fields(extra)...)
 	}
 
-	mpv, err := playerd.StartMPV(ctx, logger, envOr("MPV_SOCKET", "/tmp/mpv.sock"), mpvArgs...)
+	socketPath := envOr("MPV_SOCKET", "/tmp/mpv.sock")
+	startMPV := func(ctx context.Context) (*playerd.MPV, error) {
+		return playerd.StartMPV(ctx, logger, socketPath, mpvArgs...)
+	}
+	mpv, err := startMPV(ctx)
 	if err != nil {
 		logger.Error("start mpv", "err", err)
 		os.Exit(1)
 	}
-	defer mpv.Close()
 	logger.Info("mpv ready", "name", name, "api", apiURL, "args", mpvArgs)
 
-	agent := &playerd.Agent{APIURL: apiURL, Token: token, Name: name, Logger: logger, MPV: mpv, ProgressInterval: 2 * time.Second, AudioArgs: mpvArgs}
+	agent := &playerd.Agent{APIURL: apiURL, Token: token, Name: name, Logger: logger, MPV: mpv, StartMPV: startMPV, ProgressInterval: 2 * time.Second, AudioArgs: mpvArgs}
+	defer func() { agent.MPV.Close() }()
 	if err := agent.Run(ctx); err != nil {
 		logger.Error("agent stopped", "err", err)
 		os.Exit(1)
