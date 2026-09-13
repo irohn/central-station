@@ -344,8 +344,10 @@ UI shows the playlist and its next track in a separate card.
 
 Each zone's player reports the outputs its node can see, and managers pick one
 from the **Now playing** card (permission `output:control`, manager by default).
-"System default" follows whatever the node's OS uses as its default output;
-picking a device pins the zone to it. Switching happens mid-track with a gap of
+"System default" follows the device the node was configured with
+(`MPV_AUDIO_DEVICE`, e.g. the Pi's USB speaker in ALSA mode) or, when none is
+set, whatever the node's OS uses as its default output; picking a device pins
+the zone to it. Switching happens mid-track with a gap of
 about a tenth of a second; volume and announcement ducking carry over.
 
 - The list comes from mpv (`audio-device-list`), so it is the same code on every

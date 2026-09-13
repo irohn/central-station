@@ -42,6 +42,11 @@ type Agent struct {
 	DeviceRefresh time.Duration
 	// AudioArgs are passed to the second mpv used for announcements (--ao, --audio-device).
 	AudioArgs []string
+	// DefaultDevice is the node's configured output (MPV_AUDIO_DEVICE). It is
+	// what "auto" resolves to, so a zone with no explicit choice keeps using
+	// the device the node was set up with instead of mpv's own autoselect
+	// (which has no usable default in ALSA mode inside a container).
+	DefaultDevice string
 	// TempDir holds downloaded announcement clips (default os.TempDir()).
 	TempDir string
 
@@ -321,25 +326,35 @@ func chooseDevice(requested string, devices []player.AudioDevice) (id string, mi
 	return player.AutoDevice, true
 }
 
-// applyDevice makes mpv use the requested output (or auto when it is absent).
+// resolveTarget maps the chosen output id to what mpv should be given:
+// "auto" becomes the node's configured default device when there is one.
+func (a *Agent) resolveTarget(id string) string {
+	if id == player.AutoDevice && a.DefaultDevice != "" {
+		return a.DefaultDevice
+	}
+	return id
+}
+
+// applyDevice makes mpv use the requested output (or the default when it is absent).
 func (a *Agent) applyDevice(ctx context.Context) {
 	id, missing := chooseDevice(a.requestedDevice, a.devices)
+	target := a.resolveTarget(id)
 	current := a.MPV.GetString(ctx, "audio-device")
 	if current == "" {
 		current = player.AutoDevice
 	}
 	if missing && !a.deviceMissing {
-		a.Logger.Warn("requested audio device not found; using the default output", "device", a.requestedDevice)
+		a.Logger.Warn("requested audio device not found; using the default output", "device", a.requestedDevice, "default", target)
 	}
 	a.deviceMissing = missing
-	if current == id {
+	if current == target {
 		return
 	}
-	if err := a.MPV.SetAudioDevice(ctx, id); err != nil {
-		a.Logger.Error("set audio device", "device", id, "err", err)
+	if err := a.MPV.SetAudioDevice(ctx, target); err != nil {
+		a.Logger.Error("set audio device", "device", target, "err", err)
 		return
 	}
-	a.Logger.Info("audio device", "device", id)
+	a.Logger.Info("audio device", "device", target)
 }
 
 // broadcastAudioArgs are the output flags for the announcement mpv: the
