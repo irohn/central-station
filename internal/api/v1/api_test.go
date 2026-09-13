@@ -17,13 +17,13 @@ import (
 	"central-station/internal/auth"
 	"central-station/internal/clips"
 	"central-station/internal/config"
-	"central-station/internal/fallback"
-	"central-station/internal/player"
 	"central-station/internal/provider"
 	"central-station/internal/queue"
 	"central-station/internal/settings"
 	"central-station/internal/store"
 	"central-station/internal/tts"
+	"central-station/internal/zone"
+	"central-station/internal/zones"
 )
 
 // fakeProvider stands in for YouTube so tests never hit the network.
@@ -61,10 +61,20 @@ func (fakeProvider) ResolvePlaylist(_ context.Context, id string) (*provider.Pla
 	return pl, nil
 }
 
-func newTestHub(q *queue.Service) *player.Hub {
-	h := player.NewHub(q, nil)
-	h.VolumeStore = settings.NewMemory()
-	return h
+// testZones builds a zones manager with in-memory stores and one default zone.
+func testZones(t *testing.T, cfg *config.Config, reg *provider.Registry) *zones.Manager {
+	t.Helper()
+	zm, err := zones.New(context.Background(), zones.Deps{
+		Store:         zone.NewMemory(),
+		Settings:      settings.NewMemory(),
+		Resolver:      reg,
+		NewQueueStore: func(string) queue.Store { return queue.NewMemoryStore() },
+		LegacyToken:   cfg.PlayerToken,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return zm
 }
 
 type testAPI struct {
@@ -89,13 +99,6 @@ func newTestAPI(t *testing.T) *testAPI {
 	if err != nil {
 		t.Fatal(err)
 	}
-	q := queue.NewMemory()
-	fb, err := fallback.New(context.Background(), settings.NewMemory(), reg, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	fb.OnChange = q.Notify
-	q.SetFallback(fb)
 	cs := clips.NewMemory()
 	if err := clips.EnsureBuiltins(context.Background(), cs); err != nil {
 		t.Fatal(err)
@@ -103,9 +106,7 @@ func newTestAPI(t *testing.T) *testAPI {
 	h := Handler(Deps{
 		Config:    cfg,
 		Users:     store.NewMemory(),
-		Queue:     q,
-		Hub:       newTestHub(q),
-		Fallback:  fb,
+		Zones:     testZones(t, cfg, reg),
 		Clips:     cs,
 		TTS:       tts.New(""),
 		Settings:  settings.NewMemory(),

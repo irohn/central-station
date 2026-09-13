@@ -10,6 +10,7 @@ import (
 
 	"central-station/internal/db"
 	"central-station/internal/provider"
+	"central-station/internal/zone"
 )
 
 // storeConformance exercises a Store the way the Service uses it.
@@ -178,13 +179,13 @@ func postgresPool(t *testing.T) *pgxpool.Pool {
 
 func TestPostgresStoreConformance(t *testing.T) {
 	pool := postgresPool(t)
-	storeConformance(t, NewPostgresStore(pool))
+	storeConformance(t, NewPostgresStore(pool, zone.DefaultID))
 }
 
 func TestServiceReloadsFromPostgres(t *testing.T) {
 	pool := postgresPool(t)
 	ctx := context.Background()
-	q, err := New(ctx, NewPostgresStore(pool))
+	q, err := New(ctx, NewPostgresStore(pool, zone.DefaultID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +196,7 @@ func TestServiceReloadsFromPostgres(t *testing.T) {
 	}
 
 	// A fresh Service (simulating a restart) sees the same state.
-	q2, err := New(ctx, NewPostgresStore(pool))
+	q2, err := New(ctx, NewPostgresStore(pool, zone.DefaultID))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,5 +210,52 @@ func TestServiceReloadsFromPostgres(t *testing.T) {
 	h, _ := q2.History(ctx, 5)
 	if len(h) != 1 || h[0].Item.ID != cur.ID {
 		t.Fatalf("history after reload: %+v", h)
+	}
+}
+
+func TestPostgresStoreZoneIsolation(t *testing.T) {
+	pool := postgresPool(t)
+	ctx := context.Background()
+	other := &zone.Zone{ID: "22222222-2222-4222-8222-222222222222", Name: "Kitchen", Position: 2}
+	if err := zone.NewPostgres(pool).Create(ctx, other, ""); err != nil {
+		t.Fatal(err)
+	}
+	a := NewPostgresStore(pool, zone.DefaultID)
+	b := NewPostgresStore(pool, other.ID)
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	ia := &Item{ID: "11111111-1111-4111-8111-111111111111", Track: track("a"), AddedByID: "u", AddedByName: "U", AddedAt: now}
+	ib := &Item{ID: "33333333-3333-4333-8333-333333333333", Track: track("b"), AddedByID: "u", AddedByName: "U", AddedAt: now}
+	if err := a.Insert(ctx, ia); err != nil {
+		t.Fatal(err)
+	}
+	if err := b.Insert(ctx, ib); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Transition(ctx, nil, ia, StatusPlaying, ia, now, nil); err != nil {
+		t.Fatal(err)
+	}
+	pa, _ := a.Load(ctx)
+	pb, _ := b.Load(ctx)
+	if pa.Current == nil || pa.Current.ID != ia.ID || len(pa.Items) != 0 {
+		t.Fatalf("zone a: %+v", pa)
+	}
+	if pb.Current != nil || pb.Status != StatusIdle || len(pb.Items) != 1 || pb.Items[0].ID != ib.ID {
+		t.Fatalf("zone b leaked state: cur=%+v status=%s items=%d", pb.Current, pb.Status, len(pb.Items))
+	}
+	// Deleting through the wrong zone is a no-op.
+	if err := a.Delete(ctx, ib.ID); err != nil {
+		t.Fatal(err)
+	}
+	if pb, _ = b.Load(ctx); len(pb.Items) != 1 {
+		t.Fatal("cross-zone delete removed an item")
+	}
+	// Deleting the zone cascades.
+	if err := zone.NewPostgres(pool).Delete(ctx, other.ID); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	_ = pool.QueryRow(ctx, `SELECT count(*) FROM queue_items WHERE zone_id = $1`, other.ID).Scan(&n)
+	if n != 0 {
+		t.Fatalf("cascade left %d items", n)
 	}
 }

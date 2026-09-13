@@ -42,6 +42,7 @@ type Alert struct {
 	ClipID   string `json:"clipId"`
 	Loops    int    `json:"loops"`
 	ChimeID  string `json:"chimeId"` // "" = default chime, "none" = no chime, or a chime clip id
+	ZoneID   string `json:"zoneId"`  // "" = every zone, otherwise one zone
 
 	CreatedByID   string     `json:"createdById,omitempty"`
 	CreatedByName string     `json:"createdByName,omitempty"`

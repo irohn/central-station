@@ -22,7 +22,6 @@ import (
 	"central-station/internal/db"
 	"central-station/internal/fallback"
 	"central-station/internal/mail"
-	"central-station/internal/player"
 	"central-station/internal/provider"
 	"central-station/internal/provider/youtube"
 	"central-station/internal/queue"
@@ -31,6 +30,8 @@ import (
 	"central-station/internal/settings"
 	"central-station/internal/store"
 	"central-station/internal/tts"
+	"central-station/internal/zone"
+	"central-station/internal/zones"
 )
 
 // version is set at build time (-ldflags "-X main.version=...").
@@ -91,7 +92,8 @@ func run() error {
 
 	var (
 		users         store.UserStore
-		queueStore    queue.Store
+		newQueueStore func(zoneID string) queue.Store
+		zoneStore     zone.Store
 		settingsStore settings.Store
 		clipStore     clips.Store
 		alertStore    alerts.Store
@@ -107,7 +109,8 @@ func run() error {
 			return fmt.Errorf("migrate: %w", err)
 		}
 		users = store.NewPostgres(pool)
-		queueStore = queue.NewPostgresStore(pool)
+		newQueueStore = func(zoneID string) queue.Store { return queue.NewPostgresStore(pool, zoneID) }
+		zoneStore = zone.NewPostgres(pool)
 		settingsStore = settings.NewPostgres(pool)
 		clipStore = clips.NewPostgres(pool)
 		alertStore = alerts.NewPostgres(pool)
@@ -119,7 +122,8 @@ func run() error {
 		logger.Info("database connected")
 	} else {
 		users = store.NewMemory()
-		queueStore = queue.NewMemoryStore()
+		newQueueStore = func(string) queue.Store { return queue.NewMemoryStore() }
+		zoneStore = zone.NewMemory()
 		settingsStore = settings.NewMemory()
 		clipStore = clips.NewMemory()
 		alertStore = alerts.NewMemory()
@@ -129,24 +133,23 @@ func run() error {
 	}
 	ttsClient := tts.New(cfg.TTSURL)
 
-	q, err := queue.New(ctx, queueStore)
+	// One queue + player hub + default playlist per zone.
+	zm, err := zones.New(ctx, zones.Deps{
+		Store:          zoneStore,
+		Settings:       settingsStore,
+		Resolver:       registry,
+		Logger:         logger,
+		NewQueueStore:  newQueueStore,
+		OriginPatterns: originPatterns(append([]string{cfg.FrontendURL, cfg.BaseURL}, cfg.AllowedOrigins...)...),
+		LegacyToken:    cfg.PlayerToken,
+	})
 	if err != nil {
 		return err
 	}
-	hub := player.NewHub(q, logger)
-	hub.OriginPatterns = originPatterns(append([]string{cfg.FrontendURL, cfg.BaseURL}, cfg.AllowedOrigins...)...)
-	hub.VolumeStore = settingsStore
-	if err := hub.LoadVolume(ctx); err != nil {
-		logger.Warn("load volume; using default", "err", err)
-	}
+	logger.Info("zones loaded", "count", len(zm.List()))
 
-	// Default playlist: plays whenever the queue is empty.
-	fb, err := fallback.New(ctx, settingsStore, registry, logger)
-	if err != nil {
-		return err
-	}
-	fb.OnChange = q.Notify
-	if cfg.FallbackPlaylistURL != "" && !fb.Configured() {
+	// FALLBACK_PLAYLIST_URL seeds the default zone's playlist once.
+	if fb := zm.Default().Fallback; cfg.FallbackPlaylistURL != "" && !fb.Configured() {
 		sctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		_, seeded, err := fb.Seed(sctx, fallback.Settings{URL: cfg.FallbackPlaylistURL, Enabled: true, Shuffle: cfg.FallbackShuffle})
 		cancel()
@@ -156,10 +159,7 @@ func run() error {
 			logger.Info("default playlist seeded from FALLBACK_PLAYLIST_URL", "url", cfg.FallbackPlaylistURL)
 		}
 	}
-	q.SetFallback(fb)
-	if err := q.Nudge(ctx); err != nil {
-		logger.Warn("start default playlist", "err", err)
-	}
+	zm.Nudge(ctx)
 
 	// Scheduled announcements fire through the same path as manual broadcasts.
 	sched := &alerts.Scheduler{Store: alertStore, Logger: logger, Fire: func(ctx context.Context, al *alerts.Alert) error {
@@ -167,7 +167,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		_, err = hub.SendBroadcast(b)
+		_, err = zm.SendBroadcast(al.ZoneID, b)
 		return err
 	}}
 	go sched.Run(ctx)
@@ -175,9 +175,7 @@ func run() error {
 	deps := v1.Deps{
 		Config:    cfg,
 		Users:     users,
-		Queue:     q,
-		Hub:       hub,
-		Fallback:  fb,
+		Zones:     zm,
 		Clips:     clipStore,
 		TTS:       ttsClient,
 		Settings:  settingsStore,

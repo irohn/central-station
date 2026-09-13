@@ -315,3 +315,39 @@ textarea:focus { outline: none; border-color: var(--accent); }
 }
 @keyframes sheet-in { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .menu, .spin, .progress .bar { animation: none; transition: none; } }
+
+/* Zone switcher (top bar) */
+.zone-switcher { position: relative; min-width: 0; flex: 0 1 auto; }
+.btn.zone-button { display: inline-flex; align-items: center; gap: 0.4rem; max-width: 220px; padding: 0.35rem 0.6rem; border-radius: 999px; background: var(--panel-2); border-color: transparent; }
+.btn.zone-button:hover, .btn.zone-button[aria-expanded="true"] { border-color: var(--accent); }
+.btn.zone-button .zone-name { max-width: 150px; font-weight: 500; }
+.btn.zone-button svg { color: var(--muted); flex: 0 0 auto; }
+.zone-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 25; min-width: 260px; max-width: 90vw;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 0.35rem;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+.zone-option {
+  display: flex; align-items: center; gap: 0.6rem; width: 100%; padding: 0.5rem 0.6rem; border: 0; border-radius: 8px;
+  background: none; color: var(--text); font: inherit; text-align: left; cursor: pointer;
+}
+.zone-option:hover, .zone-option.selected { background: var(--panel-2); }
+.zone-option-text { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.zone-option.manage { border-top: 1px solid var(--border); border-radius: 0 0 8px 8px; margin-top: 0.25rem; color: var(--muted); }
+
+/* Zones page */
+.zone-list { list-style: none; margin: 0; padding: 0; }
+.zone-row { display: flex; align-items: flex-start; gap: 0.75rem; padding: 0.7rem 0; border-top: 1px solid var(--border); }
+.zone-row:first-child { border-top: 0; }
+.zone-row .dot { margin-top: 0.45rem; }
+.zone-row-main { flex: 1; min-width: 0; }
+.zone-actions { display: flex; align-items: center; gap: 0.25rem; flex: 0 0 auto; }
+.token-panel { border-color: var(--accent); }
+.token-row { margin: 0.5rem 0; }
+.token { flex: 1; min-width: 0; overflow-wrap: anywhere; padding: 0.5rem 0.65rem; background: var(--panel-2); border-radius: 8px; }
+.snippet { background: var(--panel-2); border-radius: 8px; padding: 0.65rem 0.8rem; font-size: 0.8rem; overflow-x: auto; margin: 0.5rem 0 0.9rem; }
+@media (max-width: 640px) {
+  .btn.zone-button .zone-name { max-width: 90px; }
+  .zone-row { flex-wrap: wrap; }
+  .zone-actions { width: 100%; justify-content: flex-end; }
+}

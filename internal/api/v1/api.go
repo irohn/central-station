@@ -13,22 +13,21 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 
 	"central-station/internal/alerts"
 	"central-station/internal/auth"
 	"central-station/internal/clips"
 	"central-station/internal/config"
-	"central-station/internal/fallback"
 	"central-station/internal/httpx"
 	"central-station/internal/mail"
-	"central-station/internal/player"
 	"central-station/internal/provider"
-	"central-station/internal/queue"
 	"central-station/internal/rbac"
 	"central-station/internal/settings"
 	"central-station/internal/store"
 	"central-station/internal/tts"
+	"central-station/internal/zones"
 )
 
 // Version is the value of the API-Version response header.
@@ -38,17 +37,16 @@ const Version = "1"
 type Deps struct {
 	Config    *config.Config
 	Users     store.UserStore
-	Queue     *queue.Service
 	Providers *provider.Registry
 	Sessions  *auth.Sessions
 	Google    *auth.Google // nil when Google SSO is not configured
-	Hub       *player.Hub
-	Fallback  *fallback.Manager // nil disables the default-playlist endpoints
-	Clips     clips.Store       // recordings, TTS output and chimes
-	TTS       *tts.Client       // nil or unconfigured disables typed announcements
-	Settings  settings.Store    // small admin settings (default chime)
-	Alerts    alerts.Store      // scheduled announcements (nil disables)
-	Mail      *mail.Client      // verification email; nil or unconfigured = admins verify
+	// Zones owns one queue, player hub and default playlist per zone.
+	Zones    *zones.Manager
+	Clips    clips.Store    // recordings, TTS output and chimes
+	TTS      *tts.Client    // nil or unconfigured disables typed announcements
+	Settings settings.Store // small admin settings (default chime)
+	Alerts   alerts.Store   // scheduled announcements (nil disables)
+	Mail     *mail.Client   // verification email; nil or unconfigured = admins verify
 }
 
 type api struct {
@@ -82,29 +80,45 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("GET /providers", auth.RequireAuth(httpx.HandlerFunc(a.listProviders)))
 	mux.Handle("POST /tracks/resolve", a.perm(rbac.TrackResolve, a.resolveTrack))
 
+	// Zones (each zone = one player node with its own queue). Zone-scoped
+	// routes live under /zones/{zone}/...; the same paths without the prefix
+	// address the default zone so pre-zone clients keep working.
+	mux.Handle("GET /zones", auth.RequireAuth(httpx.HandlerFunc(a.listZones)))
+	mux.Handle("POST /zones", a.perm(rbac.IntegrationsManage, a.createZone))
+	mux.Handle("GET /zones/{zone}", auth.RequireAuth(httpx.HandlerFunc(a.getZone)))
+	mux.Handle("PATCH /zones/{zone}", a.perm(rbac.IntegrationsManage, a.renameZone))
+	mux.Handle("DELETE /zones/{zone}", a.perm(rbac.IntegrationsManage, a.deleteZone))
+	mux.Handle("POST /zones/{zone}/token", a.perm(rbac.IntegrationsManage, a.rotateZoneToken))
+
+	zoned := func(pattern string, h http.Handler) {
+		method, path, _ := strings.Cut(pattern, " ")
+		mux.Handle(method+" /zones/{zone}"+path, h)
+		mux.Handle(pattern, h)
+	}
+
 	// Queue
-	mux.Handle("GET /queue", a.perm(rbac.QueueRead, a.getQueue))
-	mux.Handle("POST /queue", a.perm(rbac.QueueAdd, a.addToQueue))
-	mux.Handle("DELETE /queue/{id}", auth.RequireAuth(httpx.HandlerFunc(a.removeFromQueue)))
-	mux.Handle("PATCH /queue/{id}", a.perm(rbac.QueueReorder, a.moveInQueue))
-	mux.Handle("DELETE /queue/playlists/{id}", auth.RequireAuth(httpx.HandlerFunc(a.removePlaylist)))
-	mux.Handle("PATCH /queue/playlists/{id}", auth.RequireAuth(httpx.HandlerFunc(a.updatePlaylist)))
-	mux.Handle("GET /history", a.perm(rbac.HistoryRead, a.getHistory))
+	zoned("GET /queue", a.perm(rbac.QueueRead, a.getQueue))
+	zoned("POST /queue", a.perm(rbac.QueueAdd, a.addToQueue))
+	zoned("DELETE /queue/{id}", auth.RequireAuth(httpx.HandlerFunc(a.removeFromQueue)))
+	zoned("PATCH /queue/{id}", a.perm(rbac.QueueReorder, a.moveInQueue))
+	zoned("DELETE /queue/playlists/{id}", auth.RequireAuth(httpx.HandlerFunc(a.removePlaylist)))
+	zoned("PATCH /queue/playlists/{id}", auth.RequireAuth(httpx.HandlerFunc(a.updatePlaylist)))
+	zoned("GET /history", a.perm(rbac.HistoryRead, a.getHistory))
 
 	// Playback
-	mux.Handle("GET /playback", a.perm(rbac.QueueRead, a.getPlayback))
-	mux.Handle("POST /playback/skip", a.perm(rbac.PlaybackControl, a.skip))
-	mux.Handle("POST /playback/pause", a.perm(rbac.PlaybackControl, a.pause))
-	mux.Handle("POST /playback/resume", a.perm(rbac.PlaybackControl, a.resume))
-	mux.Handle("POST /playback/complete", a.perm(rbac.PlaybackControl, a.complete))
-	mux.Handle("POST /playback/volume", a.perm(rbac.VolumeControl, a.setVolume))
+	zoned("GET /playback", a.perm(rbac.QueueRead, a.getPlayback))
+	zoned("POST /playback/skip", a.perm(rbac.PlaybackControl, a.skip))
+	zoned("POST /playback/pause", a.perm(rbac.PlaybackControl, a.pause))
+	zoned("POST /playback/resume", a.perm(rbac.PlaybackControl, a.resume))
+	zoned("POST /playback/complete", a.perm(rbac.PlaybackControl, a.complete))
+	zoned("POST /playback/volume", a.perm(rbac.VolumeControl, a.setVolume))
 
 	// Default playlist (plays when the queue is empty)
-	mux.Handle("GET /settings/fallback", a.perm(rbac.QueueRead, a.getFallback))
-	mux.Handle("PUT /settings/fallback", a.perm(rbac.FallbackManage, a.putFallback))
-	mux.Handle("POST /settings/fallback/refresh", a.perm(rbac.FallbackManage, a.refreshFallback))
+	zoned("GET /settings/fallback", a.perm(rbac.QueueRead, a.getFallback))
+	zoned("PUT /settings/fallback", a.perm(rbac.FallbackManage, a.putFallback))
+	zoned("POST /settings/fallback/refresh", a.perm(rbac.FallbackManage, a.refreshFallback))
 
-	// Clips + announcements
+	// Clips are global; announcements go to a zone (or every zone).
 	mux.Handle("GET /clips", a.perm(rbac.BroadcastSend, a.listClips))
 	mux.Handle("POST /clips", a.perm(rbac.BroadcastSend, a.uploadClip))
 	mux.Handle("POST /clips/tts", a.perm(rbac.BroadcastSend, a.ttsClip))
@@ -113,11 +127,11 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("GET /clips/{id}/audio", auth.RequireAuth(httpx.HandlerFunc(a.clipAudio)))
 	mux.Handle("PATCH /clips/{id}", a.perm(rbac.BroadcastSend, a.renameClip))
 	mux.Handle("DELETE /clips/{id}", a.perm(rbac.BroadcastSend, a.deleteClip))
-	mux.Handle("GET /broadcasts", auth.RequireAuth(httpx.HandlerFunc(a.getBroadcasts)))
-	mux.Handle("POST /broadcasts", a.perm(rbac.BroadcastSend, a.sendBroadcast))
+	zoned("GET /broadcasts", auth.RequireAuth(httpx.HandlerFunc(a.getBroadcasts)))
+	zoned("POST /broadcasts", a.perm(rbac.BroadcastSend, a.sendBroadcast))
 	mux.Handle("PUT /settings/chime", a.perm(rbac.SettingsManage, a.setDefaultChime))
 
-	// Alerts (scheduled announcements)
+	// Alerts (scheduled announcements; each targets a zone or all zones)
 	mux.Handle("GET /alerts", a.perm(rbac.AlertsManage, a.listAlerts))
 	mux.Handle("POST /alerts", a.perm(rbac.AlertsManage, a.createAlert))
 	mux.Handle("PATCH /alerts/{id}", a.perm(rbac.AlertsManage, a.updateAlert))
@@ -125,8 +139,8 @@ func Handler(d Deps) http.Handler {
 	mux.Handle("POST /alerts/{id}/test", a.perm(rbac.AlertsManage, a.testAlert))
 
 	// Player + live events
-	mux.Handle("GET /player", auth.RequireAuth(httpx.HandlerFunc(a.getPlayer)))
-	mux.Handle("GET /events/ws", auth.RequireAuth(httpx.HandlerFunc(a.eventsWS)))
+	zoned("GET /player", auth.RequireAuth(httpx.HandlerFunc(a.getPlayer)))
+	zoned("GET /events/ws", auth.RequireAuth(httpx.HandlerFunc(a.eventsWS)))
 
 	// Users (admin)
 	mux.Handle("GET /users", a.perm(rbac.UsersManage, a.listUsers))
@@ -142,8 +156,9 @@ func Handler(d Deps) http.Handler {
 		Users:          d.Users,
 		TrustedOrigins: append([]string{d.Config.FrontendURL, d.Config.BaseURL}, d.Config.AllowedOrigins...),
 	}
-	// The player socket authenticates with PLAYER_TOKEN, not a user session,
-	// so it is mounted outside the session middleware.
+	// The player socket authenticates with a zone's player token (or the
+	// legacy PLAYER_TOKEN), not a user session, so it is mounted outside the
+	// session middleware.
 	outer := http.NewServeMux()
 	outer.Handle("GET /player/ws", httpx.HandlerFunc(a.playerWS))
 	outer.Handle("GET /player/clips/{id}/audio", httpx.HandlerFunc(a.playerClipAudio))
@@ -152,6 +167,23 @@ func Handler(d Deps) http.Handler {
 }
 
 func (a *api) logger() *slog.Logger { return slog.Default() }
+
+// rt resolves the zone a request addresses: the {zone} path value, or the
+// default zone for legacy unscoped routes.
+func (a *api) rt(r *http.Request) (*zones.Runtime, error) {
+	id := r.PathValue("zone")
+	if id == "" {
+		if rt := a.Zones.Default(); rt != nil {
+			return rt, nil
+		}
+		return nil, httpx.NewError(http.StatusServiceUnavailable, "no_zones", "no zones are configured")
+	}
+	rt, ok := a.Zones.Get(id)
+	if !ok {
+		return nil, httpx.NotFound("zone_not_found", "zone %s not found", id)
+	}
+	return rt, nil
+}
 
 func (a *api) perm(p rbac.Permission, fn httpx.HandlerFunc) http.Handler {
 	return auth.RequirePermission(p)(fn)

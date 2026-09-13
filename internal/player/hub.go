@@ -61,6 +61,10 @@ type Hub struct {
 	OriginPatterns []string
 	// VolumeStore persists the volume across restarts. Optional.
 	VolumeStore settings.Store
+	// OnStatusChange, when set, is called (without the lock held) whenever the
+	// player status changes in a way other zones' viewers care about: connect,
+	// disconnect, hello, volume, announcements. Progress ticks do not fire it.
+	OnStatusChange func()
 
 	mu         sync.Mutex
 	player     *websocket.Conn
@@ -139,8 +143,45 @@ func NewHub(q *queue.Service, logger *slog.Logger) *Hub {
 	}
 	h := &Hub{queue: q, logger: logger, volume: DefaultVolume, spectators: map[*websocket.Conn]struct{}{}}
 	h.status.Volume = DefaultVolume
-	q.OnChange = h.onQueueChange
+	q.OnChange = h.QueueChanged
 	return h
+}
+
+// QueueChanged pushes the desired state to the player and the snapshot to
+// browsers. It is the queue's OnChange hook; wrap it to add more listeners.
+func (h *Hub) QueueChanged() { h.onQueueChange() }
+
+// BroadcastEvent sends an event to every browser watching this hub.
+func (h *Hub) BroadcastEvent(ev Event) { h.broadcast(ev) }
+
+// DisconnectPlayer drops the current player connection (it will reconnect
+// and re-authenticate). Browsers stay connected.
+func (h *Hub) DisconnectPlayer(reason string) {
+	h.mu.Lock()
+	p := h.player
+	h.mu.Unlock()
+	if p != nil {
+		p.Close(websocket.StatusPolicyViolation, reason)
+	}
+}
+
+// Close disconnects the player and every browser (zone deleted).
+func (h *Hub) Close() {
+	h.mu.Lock()
+	p := h.player
+	h.player = nil
+	conns := make([]*websocket.Conn, 0, len(h.spectators))
+	for c := range h.spectators {
+		conns = append(conns, c)
+	}
+	h.spectators = map[*websocket.Conn]struct{}{}
+	h.mu.Unlock()
+	if p != nil {
+		p.Close(websocket.StatusGoingAway, "zone removed")
+	}
+	for _, c := range conns {
+		c.Close(websocket.StatusGoingAway, "zone removed")
+	}
 }
 
 // LoadVolume reads the persisted volume from VolumeStore, if any.
@@ -361,6 +402,9 @@ func (h *Hub) handlePlayerMessage(c *websocket.Conn, msg ClientMessage) {
 func (h *Hub) broadcastPlayer() {
 	st := h.Status()
 	h.broadcast(Event{Type: "player", Player: &st})
+	if h.OnStatusChange != nil {
+		h.OnStatusChange()
+	}
 }
 
 // ServeSpectator upgrades a browser request to a read-only event stream.

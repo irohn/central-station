@@ -10,6 +10,7 @@ import (
 	"central-station/internal/provider"
 	"central-station/internal/queue"
 	"central-station/internal/rbac"
+	"central-station/internal/zones"
 )
 
 // resolveRequest is the body of POST /tracks/resolve and POST /queue.
@@ -53,8 +54,12 @@ func (a *api) resolveTrack(w http.ResponseWriter, r *http.Request) error {
 }
 
 // GET /queue
-func (a *api) getQueue(w http.ResponseWriter, _ *http.Request) error {
-	httpx.JSON(w, http.StatusOK, a.Queue.Snapshot())
+func (a *api) getQueue(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, http.StatusOK, rt.Queue.Snapshot())
 	return nil
 }
 
@@ -65,6 +70,10 @@ func (a *api) getQueue(w http.ResponseWriter, _ *http.Request) error {
 // "kind":"playlist"; anything else queues a single track ("kind":"track").
 // Optional "shuffle" (default true) applies to playlists.
 func (a *api) addToQueue(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
 	u := auth.MustUser(r)
 	var body struct {
 		resolveRequest
@@ -82,15 +91,15 @@ func (a *api) addToQueue(w http.ResponseWriter, r *http.Request) error {
 				return httpx.Forbidden("role %q lacks permission %q", u.Role, rbac.PlaylistWrite)
 			}
 			shuffle := body.Shuffle == nil || *body.Shuffle
-			qp, err := a.Queue.AddPlaylist(r.Context(), pl, u.ID, u.Name, shuffle)
+			qp, err := rt.Queue.AddPlaylist(r.Context(), pl, u.ID, u.Name, shuffle)
 			if err != nil {
 				return providerError(err)
 			}
 			httpx.JSON(w, http.StatusCreated, map[string]any{
 				"kind":     "playlist",
-				"playlist": playlistSummary(a.Queue.Snapshot(), qp.ID),
+				"playlist": playlistSummary(rt.Queue.Snapshot(), qp.ID),
 				"query":    pl.URL,
-				"queue":    a.Queue.Snapshot(),
+				"queue":    rt.Queue.Snapshot(),
 			})
 			return nil
 		}
@@ -101,7 +110,7 @@ func (a *api) addToQueue(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return providerError(err)
 	}
-	item, err := a.Queue.Add(r.Context(), res.Track, u.ID, u.Name)
+	item, err := rt.Queue.Add(r.Context(), res.Track, u.ID, u.Name)
 	if err != nil {
 		return err
 	}
@@ -110,7 +119,7 @@ func (a *api) addToQueue(w http.ResponseWriter, r *http.Request) error {
 		"item":      item,
 		"inputKind": res.Kind,
 		"query":     res.Query,
-		"queue":     a.Queue.Snapshot(),
+		"queue":     rt.Queue.Snapshot(),
 	})
 	return nil
 }
@@ -125,9 +134,9 @@ func playlistSummary(s queue.State, id string) *queue.PlaylistSummary {
 }
 
 // playlistAccess allows owners (playlist:write) and managers (playlist:remove_any).
-func (a *api) playlistAccess(r *http.Request, id string) (*queue.QueuedPlaylist, error) {
+func (a *api) playlistAccess(r *http.Request, rt *zones.Runtime, id string) (*queue.QueuedPlaylist, error) {
 	u := auth.MustUser(r)
-	pl, err := a.Queue.GetPlaylist(id)
+	pl, err := rt.Queue.GetPlaylist(id)
 	if err != nil {
 		return nil, queueError(err)
 	}
@@ -144,19 +153,27 @@ func (a *api) playlistAccess(r *http.Request, id string) (*queue.QueuedPlaylist,
 
 // DELETE /queue/playlists/{id}  (skip the whole playlist; owners or managers)
 func (a *api) removePlaylist(w http.ResponseWriter, r *http.Request) error {
-	id := r.PathValue("id")
-	if _, err := a.playlistAccess(r, id); err != nil {
+	rt, err := a.rt(r)
+	if err != nil {
 		return err
 	}
-	if _, err := a.Queue.RemovePlaylist(r.Context(), id, auth.MustUser(r).ID); err != nil {
+	id := r.PathValue("id")
+	if _, err := a.playlistAccess(r, rt, id); err != nil {
+		return err
+	}
+	if _, err := rt.Queue.RemovePlaylist(r.Context(), id, auth.MustUser(r).ID); err != nil {
 		return queueError(err)
 	}
-	httpx.JSON(w, http.StatusOK, a.Queue.Snapshot())
+	httpx.JSON(w, http.StatusOK, rt.Queue.Snapshot())
 	return nil
 }
 
 // PATCH /queue/playlists/{id}  {"shuffle": false}  (owners or managers)
 func (a *api) updatePlaylist(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
 	id := r.PathValue("id")
 	var body struct {
 		Shuffle *bool `json:"shuffle"`
@@ -167,25 +184,29 @@ func (a *api) updatePlaylist(w http.ResponseWriter, r *http.Request) error {
 	if body.Shuffle == nil {
 		return httpx.BadRequest("invalid_input", "shuffle is required")
 	}
-	if _, err := a.playlistAccess(r, id); err != nil {
+	if _, err := a.playlistAccess(r, rt, id); err != nil {
 		return err
 	}
-	if _, err := a.Queue.SetPlaylistShuffle(r.Context(), id, *body.Shuffle); err != nil {
+	if _, err := rt.Queue.SetPlaylistShuffle(r.Context(), id, *body.Shuffle); err != nil {
 		return queueError(err)
 	}
-	httpx.JSON(w, http.StatusOK, a.Queue.Snapshot())
+	httpx.JSON(w, http.StatusOK, rt.Queue.Snapshot())
 	return nil
 }
 
 // DELETE /queue/{id}
 // Managers may remove anything; collaborators only their own items.
 func (a *api) removeFromQueue(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
 	u := auth.MustUser(r)
 	id := r.PathValue("id")
-	if cur := a.Queue.Current(); cur != nil && cur.ID == id {
+	if cur := rt.Queue.Current(); cur != nil && cur.ID == id {
 		return httpx.Conflict("item_is_playing", "item %s is currently playing; use POST /playback/skip", id)
 	}
-	item, err := a.Queue.Get(id)
+	item, err := rt.Queue.Get(id)
 	if err != nil {
 		return queueError(err)
 	}
@@ -197,7 +218,7 @@ func (a *api) removeFromQueue(w http.ResponseWriter, r *http.Request) error {
 	default:
 		return httpx.Forbidden("role %q lacks permission %q", u.Role, rbac.QueueRemoveOwn)
 	}
-	if _, err := a.Queue.Remove(r.Context(), id); err != nil {
+	if _, err := rt.Queue.Remove(r.Context(), id); err != nil {
 		return queueError(err)
 	}
 	httpx.NoContent(w)
@@ -206,6 +227,10 @@ func (a *api) removeFromQueue(w http.ResponseWriter, r *http.Request) error {
 
 // PATCH /queue/{id}  {"position": 0}
 func (a *api) moveInQueue(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
 	var body struct {
 		Position *int `json:"position"`
 	}
@@ -215,15 +240,19 @@ func (a *api) moveInQueue(w http.ResponseWriter, r *http.Request) error {
 	if body.Position == nil {
 		return httpx.BadRequest("invalid_input", "position is required")
 	}
-	if err := a.Queue.Move(r.Context(), r.PathValue("id"), *body.Position); err != nil {
+	if err := rt.Queue.Move(r.Context(), r.PathValue("id"), *body.Position); err != nil {
 		return queueError(err)
 	}
-	httpx.JSON(w, http.StatusOK, a.Queue.Snapshot())
+	httpx.JSON(w, http.StatusOK, rt.Queue.Snapshot())
 	return nil
 }
 
 // GET /history?limit=50
 func (a *api) getHistory(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
 	limit := 50
 	if s := r.URL.Query().Get("limit"); s != "" {
 		n, err := strconv.Atoi(s)
@@ -232,7 +261,7 @@ func (a *api) getHistory(w http.ResponseWriter, r *http.Request) error {
 		}
 		limit = n
 	}
-	entries, err := a.Queue.History(r.Context(), limit)
+	entries, err := rt.Queue.History(r.Context(), limit)
 	if err != nil {
 		return err
 	}
@@ -244,48 +273,68 @@ func (a *api) getHistory(w http.ResponseWriter, r *http.Request) error {
 }
 
 // GET /playback
-func (a *api) getPlayback(w http.ResponseWriter, _ *http.Request) error {
-	s := a.Queue.Snapshot()
+func (a *api) getPlayback(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
+	s := rt.Queue.Snapshot()
 	httpx.JSON(w, http.StatusOK, map[string]any{
 		"status": s.Status, "current": s.Current, "startedAt": s.StartedAt, "queued": len(s.Items), "updatedAt": s.UpdatedAt,
-		"player": a.Hub.Status(),
+		"player": rt.Hub.Status(), "zoneId": rt.Zone.ID,
 	})
 	return nil
 }
 
 // POST /playback/skip
 func (a *api) skip(w http.ResponseWriter, r *http.Request) error {
-	if _, err := a.Queue.Skip(r.Context(), auth.MustUser(r).ID); err != nil {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
+	if _, err := rt.Queue.Skip(r.Context(), auth.MustUser(r).ID); err != nil {
 		return queueError(err)
 	}
-	httpx.JSON(w, http.StatusOK, a.Queue.Snapshot())
+	httpx.JSON(w, http.StatusOK, rt.Queue.Snapshot())
 	return nil
 }
 
 // POST /playback/complete  (reported by a player integration when a track ends)
 func (a *api) complete(w http.ResponseWriter, r *http.Request) error {
-	if _, err := a.Queue.Complete(r.Context(), auth.MustUser(r).ID); err != nil {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
+	if _, err := rt.Queue.Complete(r.Context(), auth.MustUser(r).ID); err != nil {
 		return queueError(err)
 	}
-	httpx.JSON(w, http.StatusOK, a.Queue.Snapshot())
+	httpx.JSON(w, http.StatusOK, rt.Queue.Snapshot())
 	return nil
 }
 
 // POST /playback/pause
 func (a *api) pause(w http.ResponseWriter, r *http.Request) error {
-	if err := a.Queue.Pause(r.Context()); err != nil {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
+	if err := rt.Queue.Pause(r.Context()); err != nil {
 		return queueError(err)
 	}
-	httpx.JSON(w, http.StatusOK, a.Queue.Snapshot())
+	httpx.JSON(w, http.StatusOK, rt.Queue.Snapshot())
 	return nil
 }
 
 // POST /playback/resume
 func (a *api) resume(w http.ResponseWriter, r *http.Request) error {
-	if err := a.Queue.Resume(r.Context()); err != nil {
+	rt, err := a.rt(r)
+	if err != nil {
+		return err
+	}
+	if err := rt.Queue.Resume(r.Context()); err != nil {
 		return queueError(err)
 	}
-	httpx.JSON(w, http.StatusOK, a.Queue.Snapshot())
+	httpx.JSON(w, http.StatusOK, rt.Queue.Snapshot())
 	return nil
 }
 

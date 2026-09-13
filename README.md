@@ -126,7 +126,12 @@ All endpoints are under `/api/v1` and return JSON. Errors have one shape:
 | POST | `/api/v1/playback/pause`, `/resume` | `playback:control` | |
 | POST | `/api/v1/playback/complete` | `playback:control` | manual "track ended" (the player normally reports this over its socket) |
 | GET | `/api/v1/player` | signed in | player status: online, name, position |
-| GET | `/api/v1/player/ws` | `PLAYER_TOKEN` | player WebSocket (see below) |
+| GET | `/api/v1/player/ws` | zone player token | player WebSocket (see below) |
+| GET | `/api/v1/zones` | signed in | zones with player + playback summary |
+| POST | `/api/v1/zones` | `integrations:manage` | create a zone; response carries its player token once |
+| PATCH / DELETE | `/api/v1/zones/{zone}` | `integrations:manage` | rename / delete |
+| POST | `/api/v1/zones/{zone}/token` | `integrations:manage` | issue a new player token |
+| any | `/api/v1/zones/{zone}/queue`, `/history`, `/playback/*`, `/settings/fallback*`, `/broadcasts`, `/player`, `/events/ws` | as above | zone-scoped forms of the routes above |
 | GET | `/api/v1/events/ws` | signed in | live queue/player events for browsers |
 | GET | `/api/v1/users` | `users:manage` | |
 | PATCH | `/api/v1/users/{id}` | `users:manage` | body `{"role": "collaborator"}` |
@@ -147,9 +152,39 @@ The override lives in the JSON body rather than a header because it is part of t
 request's meaning, not transport metadata: it is visible in logs and client code, is
 validated with the rest of the body, and does not need CORS header allow-listing.
 
+### Zones (several players, several rooms or sites)
+
+A zone is one player node with its own queue, playback state, history, default
+playlist, volume and announcement queue. The web app has a zone switcher in the
+top bar; everything on the page (queue, now playing, history, default playlist,
+broadcasts) is the selected zone's. Admins manage zones from the gear menu.
+
+- Every deployment has a default zone (`Office`). Pre-zone data was migrated
+  into it, and the legacy `PLAYER_TOKEN` environment variable still
+  authenticates a player for it, so an existing single-player setup keeps
+  working with no changes.
+- Creating a zone issues a **player token**, shown once. Run a player container
+  next to that zone's speakers with `PLAYER_TOKEN=<that token>` and
+  `API_URL=<where the API is reachable from that machine>`. The player dials
+  out, so it can sit on any network that can reach the API URL; nothing is
+  opened inbound. "Issue a new token" on the Zones page rotates it and drops the
+  currently connected player until it has the new one.
+- Zone-scoped routes live under `/api/v1/zones/{zone}/...` (queue, history,
+  playback, settings/fallback, broadcasts, player, events/ws). The same paths
+  without the prefix address the default zone. `GET /api/v1/zones` lists every
+  zone with its player and playback summary; `POST /api/v1/zones`,
+  `PATCH|DELETE /api/v1/zones/{zone}` and `POST /api/v1/zones/{zone}/token`
+  need `integrations:manage` (admins). The last zone cannot be deleted.
+- Announcements go to the zone you are viewing, or to every zone
+  (`"allZones": true`, "Send to: All zones" in the UI). Alerts carry a
+  `zoneId` (empty = every zone).
+- Browsers subscribe to one zone's event stream; a `zones` event with every
+  zone's summary rides on it so the switcher shows live status for all zones.
+
 ### Player protocol
 
-`GET /api/v1/player/ws` (authenticated with `Authorization: Bearer $PLAYER_TOKEN`) is the
+`GET /api/v1/player/ws` (authenticated with `Authorization: Bearer <zone player token>`,
+or the legacy `PLAYER_TOKEN` for the default zone) is the
 player socket; `GET /api/v1/events/ws` (session cookie) streams read-only events to
 browsers. Both are JSON, one object per message.
 

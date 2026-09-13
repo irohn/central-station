@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
-import { api, ApiError, fmtTime } from "../api";
+import { ApiError, fmtTime } from "../api";
 import type { PlayerStatus, QueueState, User } from "../types";
+import { useZone } from "../zone";
 import { ListMusic, Volume } from "./Icons";
 
 /** Volume row: slider for managers, read-only level for everyone else. */
 function VolumeRow({ player, canControl }: { player: PlayerStatus; canControl: boolean }) {
+  const { zapi } = useZone();
   const [level, setLevel] = useState(player.volume);
   const dragging = useRef(false);
   const timer = useRef<number | undefined>(undefined);
@@ -20,7 +22,7 @@ function VolumeRow({ player, canControl }: { player: PlayerStatus; canControl: b
     if (pending.current === null) return;
     const v = pending.current;
     pending.current = null;
-    api("POST", "/playback/volume", { volume: v }).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
+    zapi("POST", "/playback/volume", { volume: v }).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   };
   const change = (v: number) => {
     setLevel(v);
@@ -54,6 +56,7 @@ function VolumeRow({ player, canControl }: { player: PlayerStatus; canControl: b
 }
 
 export function NowPlaying({ queue, player, user }: { queue: QueueState; player: PlayerStatus; user: User }) {
+  const { zapi } = useZone();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const canControl = user.permissions.includes("playback:control");
@@ -66,7 +69,7 @@ export function NowPlaying({ queue, player, user }: { queue: QueueState; player:
     setBusy(action);
     setError(null);
     try {
-      await api("POST", `/playback/${action}`);
+      await zapi("POST", `/playback/${action}`);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : String(e));
     } finally {

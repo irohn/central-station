@@ -13,9 +13,7 @@ import (
 	"central-station/internal/auth"
 	"central-station/internal/clips"
 	"central-station/internal/config"
-	"central-station/internal/fallback"
 	"central-station/internal/provider"
-	"central-station/internal/queue"
 	"central-station/internal/settings"
 	"central-station/internal/store"
 	"central-station/internal/tts"
@@ -64,11 +62,9 @@ func newTTSAPI(t *testing.T, extra map[string]string) (*testAPI, *[]string) {
 		t.Fatal(err)
 	}
 	reg, _ := provider.NewRegistry("youtube", fakeProvider{})
-	q := queue.NewMemory()
-	fb, _ := fallback.New(context.Background(), settings.NewMemory(), reg, nil)
 	cs := clips.NewMemory()
 	_ = clips.EnsureBuiltins(context.Background(), cs)
-	srv := httptest.NewServer(Handler(Deps{Config: cfg, Users: store.NewMemory(), Queue: q, Hub: newTestHub(q), Fallback: fb, Providers: reg,
+	srv := httptest.NewServer(Handler(Deps{Config: cfg, Users: store.NewMemory(), Zones: testZones(t, cfg, reg), Providers: reg,
 		Clips: cs, TTS: tts.New(cfg.TTSURL), Settings: settings.NewMemory(), Sessions: auth.NewSessions(cfg.SessionSecret, time.Hour, false)}))
 	t.Cleanup(srv.Close)
 	return &testAPI{t: t, srv: srv}, used

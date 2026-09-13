@@ -1,16 +1,12 @@
 package v1
 
 import (
-	"context"
 	"testing"
 	"time"
 
 	"central-station/internal/auth"
 	"central-station/internal/config"
-	"central-station/internal/fallback"
 	"central-station/internal/provider"
-	"central-station/internal/queue"
-	"central-station/internal/settings"
 	"central-station/internal/store"
 	"net/http/httptest"
 )
@@ -24,9 +20,7 @@ func newAllowlistAPI(t *testing.T, env map[string]string) *testAPI {
 		t.Fatal(err)
 	}
 	reg, _ := provider.NewRegistry("youtube", fakeProvider{})
-	q := queue.NewMemory()
-	fb, _ := fallback.New(context.Background(), settings.NewMemory(), reg, nil)
-	srv := httptest.NewServer(Handler(Deps{Config: cfg, Users: store.NewMemory(), Queue: q, Hub: newTestHub(q), Fallback: fb, Providers: reg,
+	srv := httptest.NewServer(Handler(Deps{Config: cfg, Users: store.NewMemory(), Zones: testZones(t, cfg, reg), Providers: reg,
 		Sessions: auth.NewSessions(cfg.SessionSecret, time.Hour, false)}))
 	t.Cleanup(srv.Close)
 	return &testAPI{t: t, srv: srv}

@@ -9,24 +9,19 @@ import (
 	"central-station/internal/auth"
 	"central-station/internal/fallback"
 	"central-station/internal/httpx"
+	"central-station/internal/zones"
 )
 
 // resolveTimeout bounds the synchronous playlist fetch done by PUT / refresh.
 const resolveTimeout = 25 * time.Second
 
-func (a *api) requireFallback() error {
-	if a.Fallback == nil {
-		return httpx.NewError(http.StatusServiceUnavailable, "fallback_unavailable", "the default playlist is not available on this server")
-	}
-	return nil
-}
-
 // GET /settings/fallback  (any signed-in user)
-func (a *api) getFallback(w http.ResponseWriter, _ *http.Request) error {
-	if err := a.requireFallback(); err != nil {
+func (a *api) getFallback(w http.ResponseWriter, r *http.Request) error {
+	rt, err := a.rt(r)
+	if err != nil {
 		return err
 	}
-	httpx.JSON(w, http.StatusOK, a.Fallback.Get())
+	httpx.JSON(w, http.StatusOK, rt.Fallback.Get())
 	return nil
 }
 
@@ -36,37 +31,39 @@ func (a *api) getFallback(w http.ResponseWriter, _ *http.Request) error {
 // and when a track from a previous playlist (or a now-disabled one) is playing
 // it is skipped.
 func (a *api) putFallback(w http.ResponseWriter, r *http.Request) error {
-	if err := a.requireFallback(); err != nil {
+	rt, err := a.rt(r)
+	if err != nil {
 		return err
 	}
 	var body fallback.Settings
 	if err := httpx.Decode(r, &body, false); err != nil {
 		return err
 	}
-	before := a.Fallback.Get()
+	before := rt.Fallback.Get()
 	ctx, cancel := context.WithTimeout(r.Context(), resolveTimeout)
 	defer cancel()
-	view, err := a.Fallback.Update(ctx, body)
+	view, err := rt.Fallback.Update(ctx, body)
 	if err != nil {
 		return fallbackError(err)
 	}
-	a.applyFallbackChange(r, before, view)
+	a.applyFallbackChange(r, rt, before, view)
 	httpx.JSON(w, http.StatusOK, view)
 	return nil
 }
 
 // POST /settings/fallback/refresh
 func (a *api) refreshFallback(w http.ResponseWriter, r *http.Request) error {
-	if err := a.requireFallback(); err != nil {
+	rt, err := a.rt(r)
+	if err != nil {
 		return err
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), resolveTimeout)
 	defer cancel()
-	view, err := a.Fallback.Refresh(ctx)
+	view, err := rt.Fallback.Refresh(ctx)
 	if err != nil {
 		return fallbackError(err)
 	}
-	if err := a.Queue.Nudge(r.Context()); err != nil {
+	if err := rt.Queue.Nudge(r.Context()); err != nil {
 		return err
 	}
 	httpx.JSON(w, http.StatusOK, view)
@@ -74,17 +71,17 @@ func (a *api) refreshFallback(w http.ResponseWriter, r *http.Request) error {
 }
 
 // applyFallbackChange reconciles playback with new settings.
-func (a *api) applyFallbackChange(r *http.Request, before, after fallback.View) {
-	cur := a.Queue.Current()
+func (a *api) applyFallbackChange(r *http.Request, rt *zones.Runtime, before, after fallback.View) {
+	cur := rt.Queue.Current()
 	playlistChanged := (before.Playlist == nil) != (after.Playlist == nil) ||
 		(before.Playlist != nil && after.Playlist != nil && before.Playlist.ID != after.Playlist.ID)
 	if cur.IsFallback() && (!after.Enabled || playlistChanged) {
-		if _, err := a.Queue.Skip(r.Context(), auth.MustUser(r).ID); err != nil {
+		if _, err := rt.Queue.Skip(r.Context(), auth.MustUser(r).ID); err != nil {
 			return
 		}
 	}
 	if after.Enabled {
-		_ = a.Queue.Nudge(r.Context())
+		_ = rt.Queue.Nudge(r.Context())
 	}
 }
 

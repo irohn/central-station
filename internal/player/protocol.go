@@ -91,7 +91,10 @@ type BroadcastStatus struct {
 
 // Event is pushed to browser clients (spectators).
 type Event struct {
-	Type   string       `json:"type"` // queue | progress | player
+	Type   string       `json:"type"` // queue | progress | player | zones
 	Queue  *queue.State `json:"queue,omitempty"`
 	Player *Status      `json:"player,omitempty"`
+	// Zones carries the summary of every zone (type "zones"); its element
+	// type is defined by the zones package.
+	Zones any `json:"zones,omitempty"`
 }

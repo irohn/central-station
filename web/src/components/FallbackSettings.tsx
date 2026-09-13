@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, ApiError, fmtTime } from "../api";
+import { ApiError, fmtTime } from "../api";
 import type { FallbackView, User } from "../types";
+import { useZone } from "../zone";
 import { Switch } from "./Switch";
 import { ExternalLink, RefreshCw } from "./Icons";
 
@@ -13,6 +14,7 @@ function ago(iso: string): string {
 }
 
 export function FallbackSettings({ user }: { user: User }) {
+  const { zoneId, zapi } = useZone();
   const canManage = user.permissions.includes("fallback:manage");
   const [view, setView] = useState<FallbackView | null>(null);
   const [url, setUrl] = useState("");
@@ -31,8 +33,9 @@ export function FallbackSettings({ user }: { user: User }) {
   };
 
   useEffect(() => {
-    api<FallbackView>("GET", "/settings/fallback").then(apply).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
-  }, []);
+    setView(null);
+    zapi<FallbackView>("GET", "/settings/fallback").then(apply).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
+  }, [zoneId, zapi]);
 
   const dirty = !!view && (url.trim() !== view.url || enabled !== view.enabled || shuffle !== view.shuffle);
 
@@ -42,7 +45,7 @@ export function FallbackSettings({ user }: { user: User }) {
     setError(null);
     setOk(null);
     try {
-      const v = await api<FallbackView>("PUT", "/settings/fallback", { url: url.trim(), enabled, shuffle });
+      const v = await zapi<FallbackView>("PUT", "/settings/fallback", { url: url.trim(), enabled, shuffle });
       apply(v);
       setOk(v.enabled && v.playlist ? `Saved. "${v.playlist.title}" plays whenever the queue is empty.` : "Saved.");
     } catch (err) {
@@ -57,7 +60,7 @@ export function FallbackSettings({ user }: { user: User }) {
     setError(null);
     setOk(null);
     try {
-      const v = await api<FallbackView>("POST", "/settings/fallback/refresh");
+      const v = await zapi<FallbackView>("POST", "/settings/fallback/refresh");
       apply(v);
       setOk(`Playlist refreshed: ${v.playlist?.trackCount ?? 0} tracks.`);
     } catch (err) {

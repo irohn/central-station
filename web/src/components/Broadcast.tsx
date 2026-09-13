@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
+import { useZone } from "../zone";
 import { api, ApiError } from "../api";
-import type { Clip, ClipsResponse, PlayerStatus, User, Voice } from "../types";
+import type { Clip, ClipsResponse, PlayerStatus, User, Voice, ZoneSummary } from "../types";
 import { Megaphone, Mic, Play, Square, Trash } from "./Icons";
 
 type Source = "record" | "type" | "saved";
@@ -29,7 +30,7 @@ function PreviewButton({ clipId, src }: { clipId?: string; src?: string }) {
   );
 }
 
-export function Broadcast({ user, player }: { user: User; player: PlayerStatus }) {
+export function Broadcast({ user, player, zones }: { user: User; player: PlayerStatus; zones: ZoneSummary[] }) {
   const isAdmin = user.permissions.includes("settings:manage");
   const [info, setInfo] = useState<ClipsResponse | null>(null);
   const [source, setSource] = useState<Source>("record");
@@ -58,6 +59,11 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const previewAudio = useRef<HTMLAudioElement>(null);
 
+  const { zapi, zoneId } = useZone();
+  const [target, setTarget] = useState<"zone" | "all">("zone");
+  const zoneName = zones.find((z) => z.id === zoneId)?.name ?? "this zone";
+  const anyOnline = zones.some((z) => z.player.online);
+  const canSend = target === "all" ? anyOnline : player.online;
   const load = () => api<ClipsResponse>("GET", "/clips").then(setInfo).catch((e) => setError(e instanceof ApiError ? e.message : String(e)));
   useEffect(() => { load(); }, []);
   useEffect(() => () => { if (blobUrl) URL.revokeObjectURL(blobUrl); }, [blobUrl]);
@@ -160,8 +166,9 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
     if (!selected) return;
     setBusy("send"); setError(null); setOk(null);
     try {
-      const r = await api<{ position: number }>("POST", "/broadcasts", { clipId: selected.id, loops, chimeId: chime });
-      setOk(r.position === 0 ? `Broadcasting "${selected.name}" now.` : `Queued "${selected.name}" (${r.position} ahead of it).`);
+      const r = await zapi<{ position: number; zones: string[] }>("POST", "/broadcasts", { clipId: selected.id, loops, chimeId: chime, allZones: target === "all" });
+      const where = target === "all" ? ` in ${r.zones.join(", ")}` : "";
+      setOk(r.position === 0 ? `Broadcasting "${selected.name}" now${where}.` : `Queued "${selected.name}" (${r.position} ahead of it).`);
     } catch (e) { fail(e); } finally { setBusy(null); }
   }
   async function rename(c: Clip) {
@@ -198,7 +205,7 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
       <section className="card">
         <div className="row space-between wrap">
           <h2>Send an announcement</h2>
-          <span className="muted small">{player.online ? "Player online" : "No player connected"}{info ? ` · ${info.savedCount}/${info.maxSaved} clips saved` : ""}</span>
+          <span className="muted small">{player.online ? `${zoneName} player online` : `No player in ${zoneName}`}{info ? ` · ${info.savedCount}/${info.maxSaved} clips saved` : ""}</span>
         </div>
         {atCap && <p className="warn small">The limit of {info?.maxSaved} saved clips is reached. Delete one from the Saved tab before recording or typing a new one.</p>}
         <audio ref={previewAudio} src={previewUrl ?? undefined} hidden />
@@ -317,11 +324,20 @@ export function Broadcast({ user, player }: { user: User; player: PlayerStatus }
                 {chimes.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
             </label>
-            <button className="btn primary with-icon send-btn" type="button" disabled={!selected || !player.online || busy !== null} onClick={send}>
+            {zones.length > 1 && (
+              <label className="field-inline">
+                <span className="muted small">Send to</span>
+                <select value={target} onChange={(e) => setTarget(e.target.value as "zone" | "all")}>
+                  <option value="zone">{zoneName}</option>
+                  <option value="all">All zones</option>
+                </select>
+              </label>
+            )}
+            <button className="btn primary with-icon send-btn" type="button" disabled={!selected || !canSend || busy !== null} onClick={send}>
               <Megaphone /> {busy === "send" ? "Sending…" : "Broadcast now"}
             </button>
           </div>
-          {!player.online && <p className="warn small">The player is offline, so announcements cannot be delivered.</p>}
+          {!canSend && <p className="warn small">{target === "all" ? "No player is online in any zone, so announcements cannot be delivered." : `The ${zoneName} player is offline, so announcements cannot be delivered.`}</p>}
         </div>
         {error && <p className="error">{error}</p>}
         {ok && <p className="ok small">{ok}</p>}

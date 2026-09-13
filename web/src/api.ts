@@ -32,9 +32,9 @@ export function loginUrl(redirect = "/"): string {
   return `${BASE}/auth/google/login?redirect=${encodeURIComponent(redirect)}`;
 }
 
-export function eventsWsUrl(): string {
+export function eventsWsUrl(zoneId: string): string {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
-  return `${proto}//${location.host}${BASE}/events/ws`;
+  return `${proto}//${location.host}${BASE}/zones/${zoneId}/events/ws`;
 }
 
 export function fmtTime(seconds: number): string {
