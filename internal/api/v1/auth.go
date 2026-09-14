@@ -26,10 +26,23 @@ func toUserDTO(u *store.User) userDTO {
 	return userDTO{User: u, Permissions: u.Permissions(), HasPassword: u.HasPassword(), PermissionsOverridden: u.PermissionsOverridden()}
 }
 
+// googleEnabled reports whether Google sign-in is offered: credentials are
+// configured and demo mode (local accounts only) is off.
+func (a *api) googleEnabled() bool {
+	return a.Google != nil && !a.Config.AuthDemoMode
+}
+
+func (a *api) googleUnavailable() error {
+	if a.Config.AuthDemoMode {
+		return httpx.NewError(http.StatusNotImplemented, "sso_disabled", "Google sign-in is switched off in demo mode; register with an email and password")
+	}
+	return httpx.NewError(http.StatusNotImplemented, "sso_not_configured", "Google SSO is not configured on this server")
+}
+
 // GET /auth/google/login?redirect=/somewhere
 func (a *api) googleLogin(w http.ResponseWriter, r *http.Request) error {
-	if a.Google == nil {
-		return httpx.NewError(http.StatusNotImplemented, "sso_not_configured", "Google SSO is not configured on this server")
+	if !a.googleEnabled() {
+		return a.googleUnavailable()
 	}
 	st := auth.NewOAuthState(a.safeRedirect(r.URL.Query().Get("redirect")))
 	if err := a.Sessions.SetStateCookie(w, st); err != nil {
@@ -41,8 +54,8 @@ func (a *api) googleLogin(w http.ResponseWriter, r *http.Request) error {
 
 // GET /auth/google/callback?code=...&state=...
 func (a *api) googleCallback(w http.ResponseWriter, r *http.Request) error {
-	if a.Google == nil {
-		return httpx.NewError(http.StatusNotImplemented, "sso_not_configured", "Google SSO is not configured on this server")
+	if !a.googleEnabled() {
+		return a.googleUnavailable()
 	}
 	q := r.URL.Query()
 	a.Sessions.ClearStateCookie(w)

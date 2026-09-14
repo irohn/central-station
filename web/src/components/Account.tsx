@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { api, ApiError } from "../api";
-import type { User } from "../types";
+import type { AuthMethods, User } from "../types";
 
 /** Account page: change password (password accounts only). */
-export function Account({ user }: { user: User }) {
+export function Account({ user, verification = "admin" }: { user: User; verification?: AuthMethods["passwordVerification"] }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -26,7 +26,7 @@ export function Account({ user }: { user: User }) {
   return (
     <section className="card">
       <h2>Account</h2>
-      <p className="muted small">{user.email} · {user.role}{user.emailVerified ? " · verified" : " · not verified"}</p>
+      <p className="muted small">{user.email} · {user.role}{verification === "none" ? "" : user.emailVerified ? " · verified" : " · not verified"}</p>
       {user.hasPassword ? (
         <form onSubmit={submit} className="account-form">
           <h3>Change password</h3>

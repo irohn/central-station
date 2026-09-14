@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
-import type { Permission, Role, User } from "../types";
+import type { AuthMethods, Permission, Role, User } from "../types";
 import { Check, Pencil, X } from "./Icons";
 
 const roles: Role[] = ["listener", "collaborator", "manager", "admin"];
 
 interface RolesInfo { permissions: Permission[]; grants: Record<Role, Permission[]> }
 
-export function Users({ me, onMeChanged }: { me: User; onMeChanged: (u: User) => void }) {
+export function Users({ me, onMeChanged, verification = "admin" }: { me: User; onMeChanged: (u: User) => void; verification?: AuthMethods["passwordVerification"] }) {
+  // In demo mode ("none") accounts need no verification, so hide that state.
+  const showVerification = verification !== "none";
   const [users, setUsers] = useState<User[]>([]);
   const [info, setInfo] = useState<RolesInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,11 +97,11 @@ export function Users({ me, onMeChanged }: { me: User; onMeChanged: (u: User) =>
                   )}
                   <div className="muted small ellipsis">{u.email}{u.hasPassword ? " · password" : " · Google"}</div>
                   <div className="muted small">
-                    {u.emailVerified ? "Verified" : <span className="warn">Not verified</span>} · last seen {new Date(u.lastLoginAt).toLocaleDateString()}
+                    {showVerification && <>{u.emailVerified ? "Verified" : <span className="warn">Not verified</span>} · </>}last seen {new Date(u.lastLoginAt).toLocaleDateString()}
                   </div>
                 </div>
                 <div className="row actions">
-                  {isAdmin && !u.emailVerified && <button className="btn" type="button" disabled={busy} onClick={() => patch(u.id, { emailVerified: true })}>Verify</button>}
+                  {isAdmin && showVerification && !u.emailVerified && <button className="btn" type="button" disabled={busy} onClick={() => patch(u.id, { emailVerified: true })}>Verify</button>}
                   {isAdmin && (
                     <select className="role-select" value={u.role} disabled={mine || busy} aria-label={`Role for ${u.name}`} onChange={(e) => patch(u.id, { role: e.target.value as Role })}>
                       {roles.map((r) => <option key={r} value={r}>{r}</option>)}

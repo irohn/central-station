@@ -124,8 +124,9 @@ func (a *api) eventsWS(w http.ResponseWriter, r *http.Request) error {
 // GET /auth/methods  (public) tells the login page which sign-in methods exist.
 func (a *api) authMethods(w http.ResponseWriter, _ *http.Request) error {
 	httpx.JSON(w, http.StatusOK, map[string]any{
-		"google":               a.Google != nil,
+		"google":               a.googleEnabled(),
 		"dev":                  a.Config.AuthDevMode,
+		"demo":                 a.Config.AuthDemoMode,
 		"password":             a.Config.AuthPasswordEnabled,
 		"passwordVerification": a.verificationMode(),
 		"passwordMinLength":    auth.PasswordMinLength,

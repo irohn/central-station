@@ -21,8 +21,12 @@ import (
 
 const verifyTokenTTL = 24 * time.Hour
 
-// verificationMode is "email" when a mail server is configured, else "admin".
+// verificationMode is "none" in demo mode (accounts are verified on
+// registration), "email" when a mail server is configured, else "admin".
 func (a *api) verificationMode() string {
+	if a.Config.AuthDemoMode {
+		return "none"
+	}
 	if a.Mail.Enabled() {
 		return "email"
 	}
@@ -102,7 +106,16 @@ func (a *api) passwordRegister(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	sent := a.sendVerification(r.Context(), u)
+	sent := false
+	if a.Config.AuthDemoMode {
+		// No verification step: the account is usable (and, for ADMIN_EMAILS,
+		// an admin) straight away.
+		if u, err = a.markVerified(r.Context(), u); err != nil {
+			return err
+		}
+	} else {
+		sent = a.sendVerification(r.Context(), u)
+	}
 	a.logger().Info("user registered", "email", email, "verification", a.verificationMode())
 	return a.issueSession(w, u, map[string]any{"verification": a.verificationMode(), "verificationSent": sent})
 }
@@ -146,6 +159,12 @@ func (a *api) passwordLogin(w http.ResponseWriter, r *http.Request) error {
 	}
 	a.loginLimiter.Reset(key)
 	_ = a.Users.TouchLogin(r.Context(), u.ID)
+	if a.Config.AuthDemoMode && !u.EmailVerified {
+		// Accounts created before demo mode was switched on catch up here.
+		if u, err = a.markVerified(r.Context(), u); err != nil {
+			return err
+		}
+	}
 	return a.issueSession(w, u, map[string]any{"verification": a.verificationMode()})
 }
 

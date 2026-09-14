@@ -83,7 +83,7 @@ func run() error {
 	}
 
 	var google *auth.Google
-	if cfg.GoogleConfigured() {
+	if cfg.GoogleEnabled() {
 		google = auth.NewGoogle(cfg.GoogleClientID, cfg.GoogleClientSecret, cfg.GoogleRedirectURL)
 	}
 
@@ -205,7 +205,7 @@ func run() error {
 	errCh := make(chan error, 1)
 	go func() {
 		logger.Info("api listening", "version", version, "addr", cfg.Addr, "env", cfg.Env, "baseUrl", cfg.BaseURL, "frontendUrl", cfg.FrontendURL,
-			"googleSSO", cfg.GoogleConfigured(), "passwordSignIn", cfg.AuthPasswordEnabled, "smtp", cfg.SMTPHost != "", "devMode", cfg.AuthDevMode, "defaultProvider", registry.DefaultID(), "tts", ttsClient.Enabled())
+			"googleSSO", cfg.GoogleEnabled(), "passwordSignIn", cfg.AuthPasswordEnabled, "demoMode", cfg.AuthDemoMode, "smtp", cfg.SMTPHost != "", "devMode", cfg.AuthDevMode, "defaultProvider", registry.DefaultID(), "tts", ttsClient.Enabled())
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}

@@ -127,7 +127,7 @@ export default function App() {
       </header>
 
       {!connected && <div className="banner warn-banner">Connection lost, reconnecting…</div>}
-      {user.emailVerified === false && (
+      {user.emailVerified === false && methods?.passwordVerification !== "none" && (
         <div className="banner warn-banner verify-banner">
           <span>
             Your email isn't verified yet, so you can listen but not add songs.{" "}
@@ -163,12 +163,12 @@ export default function App() {
         )}
         {view === "queue" && !queue && <div className="center muted">Loading queue…</div>}
         {view === "history" && <History version={queue?.updatedAt ?? ""} user={user} />}
-        {view === "users" && <Users me={user} onMeChanged={setUser} />}
+        {view === "users" && <Users me={user} onMeChanged={setUser} verification={methods?.passwordVerification ?? "admin"} />}
         {view === "fallback" && canManageFallback && <FallbackSettings user={user} />}
         {view === "broadcast" && canBroadcast && <Broadcast user={user} player={player} zones={zones} settingsOpen={settingsOpen} onCloseSettings={() => setSettingsOpen(false)} />}
         {view === "alerts" && canAlerts && <Alerts zones={zones} zoneId={zoneId} />}
         {view === "zones" && canZones && <ZonesPage zones={zones} zoneId={zoneId} user={user} onSelect={selectZone} />}
-        {view === "account" && <Account user={user} />}
+        {view === "account" && <Account user={user} verification={methods?.passwordVerification ?? "admin"} />}
       </main>
     </div>
     </ZoneProvider>

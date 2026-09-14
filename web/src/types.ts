@@ -265,8 +265,10 @@ export interface LiveEvent {
 export interface AuthMethods {
   google: boolean;
   dev: boolean;
+  /** Demo mode: anyone (on the allow-list) registers and is usable at once; no Google, no verification. */
+  demo: boolean;
   password: boolean;
-  /** How password accounts get verified: by email link, or by an admin. */
-  passwordVerification: "email" | "admin";
+  /** How password accounts get verified: by email link, by an admin, or not at all (demo mode). */
+  passwordVerification: "email" | "admin" | "none";
   passwordMinLength: number;
 }

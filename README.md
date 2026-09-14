@@ -107,7 +107,7 @@ All endpoints are under `/api/v1` and return JSON. Errors have one shape:
 |---|---|---|---|
 | GET | `/healthz`, `/readyz` | – | liveness / readiness |
 | GET | `/api` | – | lists API versions |
-| GET | `/api/v1/auth/methods` | – | which sign-in methods are enabled |
+| GET | `/api/v1/auth/methods` | – | which sign-in methods are enabled (`google`, `password`, `demo`, `dev`, `passwordVerification`) |
 | GET | `/api/v1/auth/google/login` | – | starts Google sign-in (`?redirect=` optional) |
 | GET | `/api/v1/auth/google/callback` | – | OAuth callback |
 | POST | `/api/v1/auth/dev/login` | – | dev mode only |
@@ -299,6 +299,36 @@ link emailed through SMTP (`SMTP_*`) or, without SMTP, by an admin pressing
 Verify on the Users page. `ADMIN_EMAILS` only grant admin to verified addresses,
 so nobody can claim an admin email without proving it. The allow-list applies to
 registration too. Users can change their password from the gear menu.
+
+### Demo mode (self-service accounts)
+
+`AUTH_DEMO_MODE=true` turns the deployment into a walk-up demo: anyone who opens
+the app registers with an email and password and can add songs straight away.
+Concretely it
+
+- switches password sign-in on (`AUTH_PASSWORD_ENABLED` is implied) and Google
+  SSO off, even when Google credentials are configured (the API logs a warning);
+- skips the verification step: new accounts are marked verified at once and
+  start as `AUTH_VERIFIED_ROLE` (collaborator by default). No verification
+  email is sent, the verify endpoints are not mounted, and accounts created
+  before the switch are promoted the next time they sign in;
+- requires `ADMIN_EMAILS`. Those addresses become admins the moment they
+  register and change everyone else's role or permissions from the Users page.
+  Because nothing is verified, whoever registers an admin address first owns
+  it, so register before sharing the link;
+- keeps the sign-in allow-list: with `ALLOWED_EMAIL_DOMAINS=domain.com` only
+  `@domain.com` addresses (and the admins) can register, and
+  `ACCESS_ALLOWLIST=false` opens it to everyone while keeping the list on file.
+
+```bash
+AUTH_DEMO_MODE=true
+ADMIN_EMAILS=you@domain.com
+ALLOWED_EMAIL_DOMAINS=domain.com   # optional
+```
+
+Demo mode is meant for showing the app around, not for the public internet: any
+email can be claimed without proof. Turn it off (and set up Google or SMTP) once
+the deployment is real.
 
 ### Sign-in allow-list
 

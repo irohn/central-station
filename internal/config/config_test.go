@@ -133,3 +133,31 @@ func TestAccessAllowlistFlag(t *testing.T) {
 		t.Fatal("bad bool accepted")
 	}
 }
+
+func TestDemoMode(t *testing.T) {
+	// Demo mode alone is a valid sign-in method and implies password sign-in,
+	// but needs an admin who can adjust roles later.
+	if _, err := LoadFrom(env(map[string]string{"AUTH_DEMO_MODE": "true"})); err == nil || !strings.Contains(err.Error(), "ADMIN_EMAILS") {
+		t.Fatalf("demo without admins: err = %v", err)
+	}
+	c, err := LoadFrom(env(map[string]string{"AUTH_DEMO_MODE": "true", "ADMIN_EMAILS": "Boss@Example.com"}))
+	if err != nil || !c.AuthDemoMode || !c.AuthPasswordEnabled || c.GoogleEnabled() {
+		t.Fatalf("demo: %v %+v", err, c)
+	}
+	for _, w := range c.Warnings {
+		if strings.Contains(w, "verified by an admin") {
+			t.Fatalf("demo mode must not warn about admin verification: %q", w)
+		}
+	}
+	// Google credentials are ignored (with a warning) while demo mode is on.
+	c, err = LoadFrom(env(map[string]string{"AUTH_DEMO_MODE": "true", "ADMIN_EMAILS": "boss@example.com", "GOOGLE_CLIENT_ID": "id", "GOOGLE_CLIENT_SECRET": "s"}))
+	if err != nil || !c.GoogleConfigured() || c.GoogleEnabled() {
+		t.Fatalf("demo + google: %v %+v", err, c)
+	}
+	if !strings.Contains(strings.Join(c.Warnings, "\n"), "Google SSO is switched off") {
+		t.Fatalf("expected a Google warning, got %v", c.Warnings)
+	}
+	if _, err := LoadFrom(env(map[string]string{"AUTH_DEMO_MODE": "maybe", "ADMIN_EMAILS": "boss@example.com"})); err == nil {
+		t.Fatal("bad bool accepted")
+	}
+}

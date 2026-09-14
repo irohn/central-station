@@ -73,6 +73,15 @@ type Config struct {
 
 	AuthDevMode bool
 
+	// AuthDemoMode (AUTH_DEMO_MODE=true) opens the app to self-service
+	// registration: email + password sign-in is on, Google SSO is off, and
+	// there is no verification step. New accounts are verified on the spot
+	// and start as AuthVerifiedRole (collaborator by default); ADMIN_EMAILS
+	// (required) name the admins who adjust roles afterwards. The sign-in
+	// allow-list still applies, so ALLOWED_EMAIL_DOMAINS limits who may
+	// register.
+	AuthDemoMode bool
+
 	// Email + password sign-in (feature flag). New accounts start as
 	// AuthUnverifiedRole and become AuthVerifiedRole once the address is
 	// verified (by email link when SMTP is configured, otherwise by an admin).
@@ -145,6 +154,13 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	}
 	if c.AuthPasswordEnabled, err = parseBool(getenv("AUTH_PASSWORD_ENABLED"), false); err != nil {
 		return nil, fmt.Errorf("AUTH_PASSWORD_ENABLED: %w", err)
+	}
+	if c.AuthDemoMode, err = parseBool(getenv("AUTH_DEMO_MODE"), false); err != nil {
+		return nil, fmt.Errorf("AUTH_DEMO_MODE: %w", err)
+	}
+	if c.AuthDemoMode {
+		// Demo mode is password sign-in without the verification step.
+		c.AuthPasswordEnabled = true
 	}
 	for _, r := range []struct{ key, val string }{{"AUTH_UNVERIFIED_ROLE", c.AuthUnverifiedRole}, {"AUTH_VERIFIED_ROLE", c.AuthVerifiedRole}} {
 		if _, err := rbac.ParseRole(r.val); err != nil {
@@ -230,6 +246,18 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	if c.AccessAllowlist && !listsSet && len(c.AdminEmails) == 0 {
 		c.Warnings = append(c.Warnings, "ACCESS_ALLOWLIST is enabled but ALLOWED_EMAIL_DOMAINS, ALLOWED_EMAILS and ADMIN_EMAILS are all empty; nobody can sign in")
 	}
+	if c.AuthDemoMode {
+		if len(c.AdminEmails) == 0 {
+			return nil, errors.New("AUTH_DEMO_MODE requires ADMIN_EMAILS: nobody could change roles otherwise")
+		}
+		if c.GoogleConfigured() {
+			c.Warnings = append(c.Warnings, "AUTH_DEMO_MODE is enabled; Google SSO is switched off even though GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET are set")
+		}
+		if c.SMTPHost != "" {
+			c.Warnings = append(c.Warnings, "AUTH_DEMO_MODE is enabled; no verification email is sent even though SMTP_HOST is set")
+		}
+		c.Warnings = append(c.Warnings, "AUTH_DEMO_MODE is enabled; anyone the allow-list admits can register and is a "+c.AuthVerifiedRole+" at once, and whoever registers an ADMIN_EMAILS address first becomes admin")
+	}
 
 	if c.IsProduction() {
 		if c.AuthDevMode {
@@ -252,7 +280,7 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	if !c.GoogleConfigured() && !c.AuthPasswordEnabled {
 		c.Warnings = append(c.Warnings, "Google SSO not configured; only the dev login endpoint is available")
 	}
-	if c.AuthPasswordEnabled && c.SMTPHost == "" {
+	if c.AuthPasswordEnabled && !c.AuthDemoMode && c.SMTPHost == "" {
 		c.Warnings = append(c.Warnings, "AUTH_PASSWORD_ENABLED without SMTP_HOST: new accounts must be verified by an admin from the Users page")
 	}
 	if c.AuthDevMode {
@@ -278,6 +306,12 @@ func (c *Config) IsProduction() bool { return c.Env == "production" }
 // GoogleConfigured reports whether Google SSO credentials are present.
 func (c *Config) GoogleConfigured() bool {
 	return c.GoogleClientID != "" && c.GoogleClientSecret != ""
+}
+
+// GoogleEnabled reports whether Google SSO should be offered: credentials are
+// present and demo mode (local accounts only) is off.
+func (c *Config) GoogleEnabled() bool {
+	return c.GoogleConfigured() && !c.AuthDemoMode
 }
 
 func envOr(getenv func(string) string, key, def string) string {

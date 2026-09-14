@@ -26,7 +26,9 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const verified = params.get("verified") === "1";
 
   useEffect(() => {
-    api<AuthMethods>("GET", "/auth/methods").then(setMethods).catch(() => setMethods({ google: false, dev: false, password: false, passwordVerification: "admin", passwordMinLength: 10 }));
+    api<AuthMethods>("GET", "/auth/methods")
+      .then((m) => { setMethods(m); if (m.demo) setMode("register"); })
+      .catch(() => setMethods({ google: false, dev: false, demo: false, password: false, passwordVerification: "admin", passwordMinLength: 10 }));
   }, []);
 
   const fail = (e: unknown) => setError(e instanceof ApiError ? e.message : String(e));
@@ -62,6 +64,7 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
       <div className="card login-card">
         <h1>Central Station</h1>
         <p className="muted">The office queue. Sign in to see what is playing.</p>
+        {methods?.demo && <p className="muted small">Demo mode: create an account with any email and password and start adding songs right away.</p>}
         {verified && <p className="ok small">Your email is verified. Sign in to continue.</p>}
         {urlError && <p className="error">{errorText[urlError] ?? `Sign-in failed: ${urlError.replace(/_/g, " ")}`}</p>}
 
@@ -85,7 +88,7 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
               <input type="password" required placeholder="Confirm password" value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
             )}
             <button className="btn primary" type="submit" disabled={busy}>{busy ? "Please wait…" : mode === "register" ? "Create account" : "Sign in"}</button>
-            {mode === "register" && (
+            {mode === "register" && methods.passwordVerification !== "none" && (
               <p className="muted small">
                 {methods.passwordVerification === "email"
                   ? "We will email you a link to confirm your address. Until then you can listen but not add songs."

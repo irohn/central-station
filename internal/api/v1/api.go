@@ -76,6 +76,9 @@ func Handler(d Deps) http.Handler {
 		mux.Handle("POST /auth/password/register", httpx.HandlerFunc(a.passwordRegister))
 		mux.Handle("POST /auth/password/login", httpx.HandlerFunc(a.passwordLogin))
 		mux.Handle("POST /auth/password/change", auth.RequireAuth(httpx.HandlerFunc(a.passwordChange)))
+	}
+	if d.Config.AuthPasswordEnabled && !d.Config.AuthDemoMode {
+		// Demo mode has no verification step, so the links have nothing to do.
 		mux.Handle("POST /auth/verify/resend", auth.RequireAuth(httpx.HandlerFunc(a.verifyResend)))
 		mux.Handle("GET /auth/verify", httpx.HandlerFunc(a.verifyEmail))
 	}
