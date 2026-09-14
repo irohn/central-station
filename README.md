@@ -286,6 +286,8 @@ Browsers must use an origin the API knows: `FRONTEND_URL`, or any entry in
 allowed for CORS, for cookie-authenticated writes and for the live WebSocket;
 anything else loads the page but never receives live updates. Set it when the
 same deployment is reached via a LAN or Tailscale name as well.
+`ALLOWED_ORIGINS=*` accepts every origin (demo mode implies this); cross-site
+protection then rests on the `SameSite=Lax` session cookie alone.
 
 ### Email + password sign-in
 
@@ -318,7 +320,10 @@ Concretely it
   it, so register before sharing the link;
 - keeps the sign-in allow-list: with `ALLOWED_EMAIL_DOMAINS=domain.com` only
   `@domain.com` addresses (and the admins) can register, and
-  `ACCESS_ALLOWLIST=false` opens it to everyone while keeping the list on file.
+  `ACCESS_ALLOWLIST=false` opens it to everyone while keeping the list on file;
+- accepts browsers on any origin (as if `ALLOWED_ORIGINS=*`), so people can
+  open the demo by whatever LAN name or address they have without listing
+  each one.
 
 ```bash
 AUTH_DEMO_MODE=true

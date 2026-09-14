@@ -161,3 +161,20 @@ func TestDemoMode(t *testing.T) {
 		t.Fatal("bad bool accepted")
 	}
 }
+
+func TestAnyOrigin(t *testing.T) {
+	c, err := LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true", "ALLOWED_ORIGINS": "http://lan.local:3000"}))
+	if err != nil || c.AnyOrigin || len(c.BrowserOrigins()) != 3 || c.BrowserOrigins()[2] != "http://lan.local:3000" {
+		t.Fatalf("listed origins: %v %+v", err, c.BrowserOrigins())
+	}
+	// "*" switches every origin on and drops out of the list.
+	c, err = LoadFrom(env(map[string]string{"AUTH_DEV_MODE": "true", "ALLOWED_ORIGINS": "http://lan.local:3000, *"}))
+	if err != nil || !c.AnyOrigin || len(c.AllowedOrigins) != 1 || len(c.BrowserOrigins()) != 1 || c.BrowserOrigins()[0] != AnyOrigin {
+		t.Fatalf("wildcard: %v %+v", err, c)
+	}
+	// Demo mode implies it.
+	c, err = LoadFrom(env(map[string]string{"AUTH_DEMO_MODE": "true", "ADMIN_EMAILS": "boss@example.com"}))
+	if err != nil || !c.AnyOrigin || c.BrowserOrigins()[0] != AnyOrigin {
+		t.Fatalf("demo: %v %+v", err, c)
+	}
+}

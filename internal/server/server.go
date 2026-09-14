@@ -17,7 +17,7 @@ import (
 // Options configure the server handler.
 type Options struct {
 	Logger         *slog.Logger
-	AllowedOrigins []string // CORS origins allowed to call the API with credentials
+	AllowedOrigins []string // CORS origins allowed to call the API with credentials; "*" allows every origin
 	Versions       map[string]http.Handler
 	// Ready reports whether the service can serve traffic (for /readyz).
 	Ready func() bool
@@ -167,7 +167,7 @@ func cors(allowed []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
-			if origin != "" && set[origin] {
+			if origin != "" && (set["*"] || set[origin]) {
 				h := w.Header()
 				h.Set("Access-Control-Allow-Origin", origin)
 				h.Set("Access-Control-Allow-Credentials", "true")

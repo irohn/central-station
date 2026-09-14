@@ -38,7 +38,7 @@ type Authenticator struct {
 	Sessions *Sessions
 	Users    store.UserStore
 	// TrustedOrigins are the origins allowed to make cookie-authenticated
-	// state-changing requests (CSRF protection).
+	// state-changing requests (CSRF protection). "*" trusts every origin.
 	TrustedOrigins []string
 	// Overrides holds per-user permission overrides (optional).
 	Overrides *Overrides
@@ -110,6 +110,11 @@ func isSafeMethod(m string) bool {
 // mutations: the Origin (or Referer) header, when present, must be trusted,
 // and Sec-Fetch-Site must not be cross-site.
 func (a *Authenticator) originTrusted(r *http.Request) bool {
+	for _, t := range a.TrustedOrigins {
+		if t == "*" {
+			return true
+		}
+	}
 	if sfs := r.Header.Get("Sec-Fetch-Site"); sfs == "cross-site" {
 		return false
 	}

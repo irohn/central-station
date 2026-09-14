@@ -168,7 +168,7 @@ func Handler(d Deps) http.Handler {
 	authn := &auth.Authenticator{
 		Sessions:       d.Sessions,
 		Users:          d.Users,
-		TrustedOrigins: append([]string{d.Config.FrontendURL, d.Config.BaseURL}, d.Config.AllowedOrigins...),
+		TrustedOrigins: d.Config.BrowserOrigins(),
 		Overrides:      d.Overrides,
 	}
 	// The player socket authenticates with a zone's player token (or the

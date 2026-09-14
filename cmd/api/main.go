@@ -45,9 +45,15 @@ func main() {
 }
 
 // originPatterns extracts host[:port] patterns for WebSocket origin checks.
+// originPatterns turns browser origins into WebSocket origin patterns
+// (host[:port]); "*" is passed through and matches every host.
 func originPatterns(urls ...string) []string {
 	var out []string
 	for _, raw := range urls {
+		if raw == config.AnyOrigin {
+			out = append(out, raw)
+			continue
+		}
 		if u, err := url.Parse(raw); err == nil && u.Host != "" {
 			out = append(out, u.Host)
 		}
@@ -140,7 +146,7 @@ func run() error {
 		Resolver:       registry,
 		Logger:         logger,
 		NewQueueStore:  newQueueStore,
-		OriginPatterns: originPatterns(append([]string{cfg.FrontendURL, cfg.BaseURL}, cfg.AllowedOrigins...)...),
+		OriginPatterns: originPatterns(cfg.BrowserOrigins()...),
 		LegacyToken:    cfg.PlayerToken,
 	})
 	if err != nil {
@@ -188,7 +194,7 @@ func run() error {
 
 	handler := server.New(server.Options{
 		Logger:         logger,
-		AllowedOrigins: append([]string{cfg.FrontendURL}, cfg.AllowedOrigins...),
+		AllowedOrigins: cfg.BrowserOrigins(),
 		Versions:       map[string]http.Handler{"v1": v1.Handler(deps)},
 		Ready:          ready,
 	})

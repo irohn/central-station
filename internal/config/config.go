@@ -24,6 +24,10 @@ type Config struct {
 	// to call the API and open the live socket, e.g. a LAN or Tailscale name
 	// the same deployment is also reached through.
 	AllowedOrigins []string
+	// AnyOrigin lets browsers on every origin use the API (CORS, cookie
+	// writes, live socket) without listing them: ALLOWED_ORIGINS=* or demo
+	// mode, where people open the app by whatever LAN name they have.
+	AnyOrigin bool
 
 	SessionSecret string
 	SessionTTL    time.Duration
@@ -227,12 +231,21 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	if c.GoogleRedirectURL == "" {
 		c.GoogleRedirectURL = c.BaseURL + "/api/v1/auth/google/callback"
 	}
-	for i, o := range c.AllowedOrigins {
+	origins := c.AllowedOrigins[:0]
+	for _, o := range c.AllowedOrigins {
 		o = strings.TrimRight(strings.TrimSpace(o), "/")
-		if !strings.Contains(o, "://") {
-			return nil, fmt.Errorf("ALLOWED_ORIGINS: %q must be an origin like https://host:port", o)
+		if o == AnyOrigin {
+			c.AnyOrigin = true
+			continue
 		}
-		c.AllowedOrigins[i] = o
+		if !strings.Contains(o, "://") {
+			return nil, fmt.Errorf("ALLOWED_ORIGINS: %q must be an origin like https://host:port, or * for any", o)
+		}
+		origins = append(origins, o)
+	}
+	c.AllowedOrigins = origins
+	if c.AuthDemoMode {
+		c.AnyOrigin = true
 	}
 	for i, e := range c.AdminEmails {
 		c.AdminEmails[i] = strings.ToLower(e)
@@ -257,6 +270,9 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 			c.Warnings = append(c.Warnings, "AUTH_DEMO_MODE is enabled; no verification email is sent even though SMTP_HOST is set")
 		}
 		c.Warnings = append(c.Warnings, "AUTH_DEMO_MODE is enabled; anyone the allow-list admits can register and is a "+c.AuthVerifiedRole+" at once, and whoever registers an ADMIN_EMAILS address first becomes admin")
+	}
+	if c.AnyOrigin {
+		c.Warnings = append(c.Warnings, "browsers on any origin may use the API (ALLOWED_ORIGINS=* or demo mode); cross-site request protection relies on the SameSite cookie alone")
 	}
 
 	if c.IsProduction() {
@@ -298,6 +314,19 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 		c.Warnings = append(c.Warnings, "PLAYER_TOKEN is shorter than 16 characters; use a longer secret")
 	}
 	return c, nil
+}
+
+// AnyOrigin is the ALLOWED_ORIGINS entry (and the marker passed to the
+// origin checks) meaning "every browser origin".
+const AnyOrigin = "*"
+
+// BrowserOrigins lists the origins browsers may use the API from: the web
+// app, the API itself and ALLOWED_ORIGINS, or just "*" when any is allowed.
+func (c *Config) BrowserOrigins() []string {
+	if c.AnyOrigin {
+		return []string{AnyOrigin}
+	}
+	return append([]string{c.FrontendURL, c.BaseURL}, c.AllowedOrigins...)
 }
 
 // IsProduction reports whether the app runs with APP_ENV=production.

@@ -2,6 +2,7 @@ package v1
 
 import (
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -153,6 +154,28 @@ func TestDemoModeDomainEnforcement(t *testing.T) {
 	a = newDemoAPI(t, nil)
 	if r := a.do("POST", "/auth/password/register", "", map[string]string{"email": "eve@gmail.com", "password": "a decent passphrase"}); r.Status != 200 {
 		t.Errorf("open: %d %v", r.Status, r.Body)
+	}
+}
+
+func TestDemoModeAcceptsAnyBrowserOrigin(t *testing.T) {
+	// People open a demo by whatever LAN name or address they have, so
+	// cookie-authenticated writes are accepted from every origin.
+	a := newDemoAPI(t, nil)
+	res := a.do("POST", "/auth/password/register", "", map[string]string{"email": "boss@corp.io", "password": "a decent passphrase"})
+	var cookie string
+	for _, c := range res.Header.Values("Set-Cookie") {
+		if strings.HasPrefix(c, auth.SessionCookie) {
+			cookie = c
+		}
+	}
+	if cookie == "" {
+		t.Fatal("no session cookie set")
+	}
+	for _, origin := range []string{"http://192.168.1.20:3000", "http://office-pc.local:3000", "https://evil.example"} {
+		// 409: nothing is playing, i.e. the request got past the origin check.
+		if r := a.do("POST", "/playback/pause", "", nil, "Cookie", cookie, "Origin", origin, "Sec-Fetch-Site", "cross-site"); r.Status != 409 {
+			t.Errorf("origin %s: %d %v", origin, r.Status, r.Body)
+		}
 	}
 }
 
