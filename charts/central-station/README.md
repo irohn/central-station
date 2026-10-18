@@ -42,3 +42,15 @@ helm repo index docs/helm --url https://raw.githubusercontent.com/irohn/central-
 
 Commit the chart, package and index together. When merging, update the repository
 URL in this document and GitOps to the intended long-lived branch.
+
+### Optional workstation player
+
+Set `player.enabled=true`, select the speaker's node with `player.nodeSelector`,
+and set `player.uid`, `player.gid`, `player.pulseDirectory` and optionally
+`player.pulseCookie` to match its desktop user. The player connects to the API
+with the existing PLAYER_TOKEN. It mounts only that user's PulseAudio socket
+directory and cookie read-only, runs unprivileged and exposes no ports. The
+host's default output (including Bluetooth) is used unless a zone selects an
+output in the app. PipeWire/PulseAudio must be running on the host; Bluetooth
+pairing and reconnection remain host responsibilities. With user lingering
+disabled, the desktop audio session may stop after logout.

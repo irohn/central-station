@@ -30,3 +30,13 @@ resources:
   tts:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 2Gi}
+# Optional speaker agent on a Linux desktop node with PipeWire/PulseAudio.
+player:
+  enabled: false
+  name: workstation-player
+  nodeSelector: {}
+  uid: 1000
+  gid: 1000
+  pulseDirectory: /run/user/1000/pulse
+  # Optional PulseAudio authentication cookie from the same desktop user.
+  pulseCookie: ""

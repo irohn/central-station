@@ -24,6 +24,11 @@ spec:
         - podSelector:
             matchLabels:
               app: {{ include "central.name" $ }}-{{ if eq $component "api" }}web{{ else }}api{{ end }}
+        {{- if and (eq $component "api") $.Values.player.enabled }}
+        - podSelector:
+            matchLabels:
+              app: {{ include "central.name" $ }}-player
+        {{- end }}
         {{- end }}
       ports:
         - protocol: TCP

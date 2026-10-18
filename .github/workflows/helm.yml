@@ -17,5 +17,5 @@ jobs:
       - run: |
           helm lint charts/central-station
           helm template central-station charts/central-station > /tmp/rendered.yaml
-          helm template central-station docs/helm/central-station-0.1.0.tgz > /tmp/packaged.yaml
+          helm template central-station docs/helm/central-station-0.1.1.tgz > /tmp/packaged.yaml
           diff -u /tmp/rendered.yaml /tmp/packaged.yaml
