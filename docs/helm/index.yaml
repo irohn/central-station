@@ -1,0 +1,14 @@
+apiVersion: v1
+entries:
+  central-station:
+  - apiVersion: v2
+    appVersion: 0.0.17
+    created: "2026-10-18T15:51:48.17656075+03:00"
+    description: Central Station with Google sign-in and private Tailscale ingress
+    digest: b46832f130d9db58fc1a59b76009f34010c8967b833d843d18b4442ce12a5cea
+    name: central-station
+    type: application
+    urls:
+    - https://raw.githubusercontent.com/irohn/central-station/codex/helm-tailscale/docs/helm/central-station-0.1.0.tgz
+    version: 0.1.0
+generated: "2026-10-18T15:51:48.176170823+03:00"
