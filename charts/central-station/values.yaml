@@ -1,0 +1,32 @@
+# Required: an existing Secret; credentials never belong in Helm values.
+existingSecret: central-station
+publicURL: https://central.example.ts.net
+image:
+  registry: ghcr.io/irohn
+  tag: ""
+imagePullSecrets: []
+nodeSelector: {}
+auth:
+  adminEmails: []
+  allowedEmails: []
+  allowedDomains: []
+  # Fail closed until an administrator configures the allow-list.
+  accessAllowlist: true
+postgres:
+  image: postgres:17-alpine
+  storage: 10Gi
+  storageClassName: ""
+tailscale:
+  enabled: true
+  hostname: central
+  tags: "tag:k8s"
+resources:
+  api:
+    requests: {cpu: 100m, memory: 128Mi}
+    limits: {memory: 512Mi}
+  web:
+    requests: {cpu: 50m, memory: 32Mi}
+    limits: {memory: 128Mi}
+  tts:
+    requests: {cpu: 100m, memory: 256Mi}
+    limits: {memory: 2Gi}

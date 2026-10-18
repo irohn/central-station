@@ -499,3 +499,9 @@ Data is kept in the `pgdata` compose volume. `docker compose down -v` wipes it.
 See `.env.example`. Production requires `APP_ENV=production`, a `SESSION_SECRET`,
 `DATABASE_URL`, Google credentials and `COOKIE_SECURE=true` behind HTTPS. `AUTH_DEV_MODE` is refused in
 production.
+
+### Kubernetes / Helm
+
+See [the Helm chart](charts/central-station/README.md) for Google-only sign-in,
+persistent PostgreSQL, ClusterIP services, and private Tailscale HTTPS access.
+The chart repository and packaged releases live in `docs/helm`.

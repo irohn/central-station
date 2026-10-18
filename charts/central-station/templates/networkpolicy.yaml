@@ -1,0 +1,31 @@
+# Only Tailscale proxies can reach the web frontend. Internal components only
+# accept their caller; egress stays open for Google, media providers and DNS.
+{{- range $component, $port := dict "web" 3000 "api" 8080 "tts" 5000 "postgres" 5432 }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "central.name" $ }}-{{ $component }}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ include "central.name" $ }}-{{ $component }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- if eq $component "web" }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tailscale
+          podSelector:
+            matchLabels:
+              tailscale.com/managed: "true"
+        {{- else }}
+        - podSelector:
+            matchLabels:
+              app: {{ include "central.name" $ }}-{{ if eq $component "api" }}web{{ else }}api{{ end }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $port }}
+{{- end }}
