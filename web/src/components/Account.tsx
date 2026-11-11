@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { api, ApiError } from "../api";
-import type { User } from "../types";
+import type { AuthMethods, User } from "../types";
 
 /** Account page: change password (password accounts only). */
-export function Account({ user }: { user: User }) {
+export function Account({ user, methods }: { user: User; methods: AuthMethods | null }) {
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -38,7 +38,7 @@ export function Account({ user }: { user: User }) {
           {ok && <p className="ok small">{ok}</p>}
         </form>
       ) : (
-        <p className="muted small">You sign in with Google, so there is no password to change here.</p>
+        <p className="muted small">{methods?.proxy ? "You are signed in by your tailnet identity" : "You sign in with Google"}, so there is no password to change here.</p>
       )}
     </section>
   );

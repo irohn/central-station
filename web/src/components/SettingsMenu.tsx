@@ -14,7 +14,8 @@ export function SettingsMenu({ user, player, zoneName, connected, theme, onToggl
   theme: Theme;
   onToggleTheme: () => void;
   onNavigate: (v: MenuView) => void;
-  onLogout: () => void;
+  /** Absent when there is nothing to sign out of (proxy sign-in). */
+  onLogout?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const canManageFallback = user.permissions.includes("fallback:manage");
@@ -122,9 +123,11 @@ export function SettingsMenu({ user, player, zoneName, connected, theme, onToggl
               <button className="menu-item" role="menuitem" onClick={onToggleTheme}>
                 {theme === "light" ? <Moon /> : <Sun />} <span>{theme === "light" ? "Dark mode" : "Light mode"}</span>
               </button>
-              <button className="menu-item" role="menuitem" onClick={() => { setOpen(false); onLogout(); }}>
-                <LogOut /> <span>Sign out</span>
-              </button>
+              {onLogout && (
+                <button className="menu-item" role="menuitem" onClick={() => { setOpen(false); onLogout(); }}>
+                  <LogOut /> <span>Sign out</span>
+                </button>
+              )}
             </div>
           </div>
         </div>,

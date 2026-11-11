@@ -133,3 +133,72 @@ func TestAccessAllowlistFlag(t *testing.T) {
 		t.Fatal("bad bool accepted")
 	}
 }
+
+func TestProxyMode(t *testing.T) {
+	base := func() map[string]string {
+		return map[string]string{"AUTH_MODE": "proxy", "AUTH_TRUSTED_PROXY_CIDRS": "10.42.0.2/31, 10.42.0.4/30,192.168.1.9", "ALLOWED_EMAIL_DOMAINS": "example.com"}
+	}
+	c, err := LoadFrom(env(base()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !c.ProxyMode() || c.TrustedHeader != "Tailscale-User-Login" || c.DisplayNameHeader != "Tailscale-User-Name" || c.PictureHeader != "Tailscale-User-Profile-Pic" {
+		t.Fatalf("config = %+v", c)
+	}
+	if len(c.TrustedProxyCIDRs) != 3 || c.TrustedProxyCIDRs[0].String() != "10.42.0.2/31" || c.TrustedProxyCIDRs[2].String() != "192.168.1.9/32" {
+		t.Fatalf("cidrs = %v", c.TrustedProxyCIDRs)
+	}
+	if !c.AccessAllowlist {
+		t.Fatal("allow-list must be enforced")
+	}
+
+	// Production needs neither SESSION_SECRET nor Google in this mode.
+	e := base()
+	e["APP_ENV"] = "production"
+	e["DATABASE_URL"] = "postgres://x@db/x"
+	e["PLAYER_TOKEN"] = strings.Repeat("p", 24)
+	if c, err := LoadFrom(env(e)); err != nil || len(c.Warnings) != 0 {
+		t.Fatalf("production: %v %v", err, c.Warnings)
+	}
+
+	// Optional headers can be switched off; the identity header cannot.
+	e = base()
+	e["AUTH_DISPLAY_NAME_HEADER"] = "none"
+	e["AUTH_PICTURE_HEADER"] = "NONE"
+	e["AUTH_TRUSTED_HEADER"] = "X-Login"
+	if c, err := LoadFrom(env(e)); err != nil || c.DisplayNameHeader != "" || c.PictureHeader != "" || c.TrustedHeader != "X-Login" {
+		t.Fatalf("headers: %v %+v", err, c)
+	}
+
+	for name, mut := range map[string]func(map[string]string){
+		"no cidrs":       func(m map[string]string) { delete(m, "AUTH_TRUSTED_PROXY_CIDRS") },
+		"bad cidr":       func(m map[string]string) { m["AUTH_TRUSTED_PROXY_CIDRS"] = "10.42.0.0/24,nope" },
+		"dev mode":       func(m map[string]string) { m["AUTH_DEV_MODE"] = "true" },
+		"password":       func(m map[string]string) { m["AUTH_PASSWORD_ENABLED"] = "true" },
+		"no allow-list":  func(m map[string]string) { delete(m, "ALLOWED_EMAIL_DOMAINS") },
+		"allow-list off": func(m map[string]string) { m["ACCESS_ALLOWLIST"] = "false" },
+		"unknown mode":   func(m map[string]string) { m["AUTH_MODE"] = "magic" },
+	} {
+		e := base()
+		mut(e)
+		if _, err := LoadFrom(env(e)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+
+	// Google credentials beside proxy mode are a warning, not a second way in.
+	e = base()
+	e["GOOGLE_CLIENT_ID"], e["GOOGLE_CLIENT_SECRET"] = "id", "s"
+	c, err = LoadFrom(env(e))
+	if err != nil || !strings.Contains(strings.Join(c.Warnings, "\n"), "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set but not used") {
+		t.Fatalf("google beside proxy: %v %v", err, c.Warnings)
+	}
+
+	// Admin emails alone are an allow-list too.
+	e = base()
+	delete(e, "ALLOWED_EMAIL_DOMAINS")
+	e["ADMIN_EMAILS"] = "boss@example.com"
+	if _, err := LoadFrom(env(e)); err != nil {
+		t.Fatalf("admins only: %v", err)
+	}
+}

@@ -1,10 +1,12 @@
 package v1
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"central-station/internal/auth"
 	"central-station/internal/httpx"
@@ -64,7 +66,7 @@ func (a *api) googleCallback(w http.ResponseWriter, r *http.Request) error {
 	if !a.emailAllowed(id.Email) {
 		return a.loginFailed(w, r, st.Redirect, "email_not_allowed")
 	}
-	u, err := a.signIn(r, &store.User{Email: id.Email, Name: id.Name, PictureURL: id.Picture, GoogleSub: id.Sub}, "")
+	u, err := a.signIn(r.Context(), &store.User{Email: id.Email, Name: id.Name, PictureURL: id.Picture, GoogleSub: id.Sub}, "")
 	if err != nil {
 		return err
 	}
@@ -105,7 +107,7 @@ func (a *api) devLogin(w http.ResponseWriter, r *http.Request) error {
 			return httpx.BadRequest("invalid_role", "%s", err.Error())
 		}
 	}
-	u, err := a.signIn(r, &store.User{Email: body.Email, Name: body.Name}, role)
+	u, err := a.signIn(r.Context(), &store.User{Email: body.Email, Name: body.Name}, role)
 	if err != nil {
 		return err
 	}
@@ -133,11 +135,11 @@ func (a *api) isAdminEmail(email string) bool {
 	return false
 }
 
-// signIn upserts the user (identity-provider path: Google or dev login) and
-// applies role rules: emails in ADMIN_EMAILS are always admins, new users get
-// DEFAULT_ROLE, and forceRole (dev mode only) overrides the stored role.
-func (a *api) signIn(r *http.Request, in *store.User, forceRole rbac.Role) (*store.User, error) {
-	ctx := r.Context()
+// signIn upserts the user (identity-provider path: Google, the proxy header
+// or dev login) and applies role rules: emails in ADMIN_EMAILS are always
+// admins, new users get DEFAULT_ROLE, and forceRole (dev mode only)
+// overrides the stored role.
+func (a *api) signIn(ctx context.Context, in *store.User, forceRole rbac.Role) (*store.User, error) {
 	email := strings.ToLower(in.Email)
 	isAdmin := a.isAdminEmail(email)
 	if _, err := a.Users.GetByEmail(ctx, email); errors.Is(err, store.ErrNotFound) {
@@ -166,6 +168,54 @@ func (a *api) signIn(r *http.Request, in *store.User, forceRole rbac.Role) (*sto
 		}
 	}
 	return u, nil
+}
+
+// proxyTouchInterval bounds how often proxy mode rewrites a user's row just
+// to move LastLoginAt: there is no login event, so "last seen" is kept
+// loosely instead of on every request.
+const proxyTouchInterval = time.Hour
+
+// proxySignIn resolves a proxy identity to a user on every request. The
+// first request creates the user as Google sign-in would; later ones write
+// only when the profile the proxy reports has changed, when ADMIN_EMAILS
+// says the role is wrong, or when LastLoginAt is older than
+// proxyTouchInterval.
+func (a *api) proxySignIn(ctx context.Context, id auth.Identity) (*store.User, error) {
+	u, err := a.Users.GetByEmail(ctx, id.Email)
+	if errors.Is(err, store.ErrNotFound) {
+		return a.signIn(ctx, &store.User{Email: id.Email, Name: id.Name, PictureURL: id.Picture}, "")
+	}
+	if err != nil {
+		return nil, err
+	}
+	// The stored Name is the chosen display name when there is one, so the
+	// profile name can only be compared while none is set.
+	nameChanged := u.DisplayName == "" && u.Name != id.Name
+	if nameChanged || u.PictureURL != id.Picture || time.Since(u.LastLoginAt) > proxyTouchInterval {
+		return a.signIn(ctx, &store.User{Email: id.Email, Name: id.Name, PictureURL: id.Picture}, "")
+	}
+	if a.isAdminEmail(u.Email) && u.Role != rbac.RoleAdmin {
+		return a.Users.SetRole(ctx, u.ID, rbac.RoleAdmin)
+	}
+	return u, nil
+}
+
+// GET /auth/whoami  (public) says who the caller is, and in proxy mode why
+// they are not signed in when they are not: the proxy sent no identity, the
+// request did not come from the proxy, or the address is not allowed.
+func (a *api) whoami(w http.ResponseWriter, r *http.Request) error {
+	mode := a.Config.AuthMode
+	if u, ok := auth.UserFrom(r.Context()); ok {
+		httpx.JSON(w, http.StatusOK, map[string]any{"mode": mode, "signedIn": true, "user": toUserDTO(u)})
+		return nil
+	}
+	out := map[string]any{"mode": mode, "signedIn": false}
+	if ref, ok := auth.RefusalFrom(r.Context()); ok {
+		out["reason"] = ref.Code
+		out["message"] = ref.Message
+	}
+	httpx.JSON(w, http.StatusOK, out)
+	return nil
 }
 
 // POST /auth/logout

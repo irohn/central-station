@@ -1,7 +1,8 @@
 # Central Station
 
-Shared office music queue. Anyone signs in with Google, collaborators add songs by
-pasting a link or typing a search, managers run the queue, admins run the app.
+Shared office music queue. Anyone signs in with Google (or is signed in by the
+proxy in front of the app), collaborators add songs by pasting a link or typing a
+search, managers run the queue, admins run the app.
 
 Three containers:
 
@@ -300,6 +301,61 @@ Verify on the Users page. `ADMIN_EMAILS` only grant admin to verified addresses,
 so nobody can claim an admin email without proving it. The allow-list applies to
 registration too. Users can change their password from the gear menu.
 
+### Sign-in from a trusted proxy (`AUTH_MODE=proxy`)
+
+Behind a reverse proxy that knows who the person is, such as the Tailscale
+Kubernetes operator's proxy, the API can take its identity from a request header
+instead of running Google sign-in:
+
+```
+browser ──https──> Tailscale proxy ──> web (nginx) ──> api
+                   sets Tailscale-User-Login            │ peer trusted? allowed? role?
+                   (replaces any copy the client sent)  └─ the request runs as that person
+```
+
+No login page, no cookie, no session: the proxy names the person on every
+request, so a change to the allow-list or to the tailnet policy applies on their
+next one, and there is nothing to sign out of. `GET /api/v1/auth/whoami` says who
+the caller is, or why nobody is (`no_identity`, `untrusted_peer`,
+`invalid_identity`, `email_not_allowed`), and the login page shows that instead
+of a button. `GET /api/v1/me` answers 401 with the same code.
+
+The header is a sign-in only because nothing but the proxy can send it, which
+three things together guarantee. **All three have to stay.**
+
+1. **The proxy overwrites the header.** The Tailscale proxy sets
+   `Tailscale-User-Login`, `Tailscale-User-Name` and `Tailscale-User-Profile-Pic`
+   from the tailnet identity of the connection after removing whatever the client
+   sent. A tagged node (a CI runner) gets no identity and is refused.
+   `X-Forwarded-Email` would not do: it passes through unchanged.
+2. **Only the proxy can reach the web and API containers.** In Kubernetes that
+   is the chart's NetworkPolicies; the nginx in the web container also refuses
+   `/api/` from any other peer.
+3. **The API believes the header only from `AUTH_TRUSTED_PROXY_CIDRS`.** The
+   addresses the proxy's requests arrive from (behind the web container, that
+   container's range), and nothing wider: a NetworkPolicy cannot keep out the
+   node the pods run on, so the range must leave the node's own addresses out. A
+   request from any other address is `untrusted_peer` whatever headers it carries.
+
+After the peer check the address must pass the allow-list (`ALLOWED_EMAIL_DOMAINS`,
+`ALLOWED_EMAILS`, `ADMIN_EMAILS`), which this mode requires to be enforced. The
+user record is created on the first request as Google sign-in would create it
+(`DEFAULT_ROLE`, `ADMIN_EMAILS` are admins) and the proxy's profile name and
+picture are kept fresh; a display name chosen in the app wins. The browser sends
+every request the proxy signs, from any page, so requests that change state need
+the `Origin` to be `FRONTEND_URL`, `BASE_URL` or one of `ALLOWED_ORIGINS`, exactly
+as cookie-authenticated requests do.
+
+| Variable | Meaning |
+| --- | --- |
+| `AUTH_MODE=proxy` | turns this on; `GOOGLE_*` are then ignored, `AUTH_DEV_MODE` and `AUTH_PASSWORD_ENABLED` are refused, `SESSION_SECRET` is not needed |
+| `AUTH_TRUSTED_PROXY_CIDRS` | the proxy's addresses, comma-separated. **Required**; blank refuses to start |
+| `AUTH_TRUSTED_HEADER` | the identity header, default `Tailscale-User-Login` |
+| `AUTH_DISPLAY_NAME_HEADER` / `AUTH_PICTURE_HEADER` | the display name and avatar headers, default the Tailscale ones; `none` reads neither |
+
+Speaker players are untouched: they authenticate with their zone token on
+`/api/v1/player/...`, which never reads identity.
+
 ### Sign-in allow-list
 
 `ALLOWED_EMAIL_DOMAINS` and `ALLOWED_EMAILS` list who may sign in; `ADMIN_EMAILS`
@@ -497,11 +553,13 @@ Data is kept in the `pgdata` compose volume. `docker compose down -v` wipes it.
 ## Configuration
 
 See `.env.example`. Production requires `APP_ENV=production`, a `SESSION_SECRET`,
-`DATABASE_URL`, Google credentials and `COOKIE_SECURE=true` behind HTTPS. `AUTH_DEV_MODE` is refused in
-production.
+`DATABASE_URL`, Google credentials and `COOKIE_SECURE=true` behind HTTPS, or
+`AUTH_MODE=proxy` with `AUTH_TRUSTED_PROXY_CIDRS` behind a proxy that names the
+person (see above). `AUTH_DEV_MODE` is refused in production.
 
 ### Kubernetes / Helm
 
-See [the Helm chart](charts/central-station/README.md) for Google-only sign-in,
-persistent PostgreSQL, ClusterIP services, and private Tailscale HTTPS access.
+See [the Helm chart](charts/central-station/README.md) for sign-in from the
+tailnet identity or Google, persistent PostgreSQL, ClusterIP services, and
+private Tailscale HTTPS access.
 The chart repository and packaged releases live in `docs/helm`.
