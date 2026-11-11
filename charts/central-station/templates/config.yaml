@@ -7,7 +7,19 @@ data:
   ADDR: ":8080"
   BASE_URL: {{ required "publicURL is required" .Values.publicURL | quote }}
   FRONTEND_URL: {{ .Values.publicURL | quote }}
+  {{- if include "central.proxyMode" . }}
+  # Sign-in from the proxy's identity header. The CIDRs are the other half of
+  # the NetworkPolicy: the api believes the header only from these peers, so
+  # the node, which no policy keeps out, is refused as an untrusted peer.
+  AUTH_MODE: proxy
+  AUTH_TRUSTED_PROXY_CIDRS: {{ join "," .Values.auth.trustedProxyCIDRs | quote }}
+  AUTH_TRUSTED_HEADER: {{ .Values.auth.trustedHeader | quote }}
+  AUTH_DISPLAY_NAME_HEADER: {{ .Values.auth.displayNameHeader | default "none" | quote }}
+  AUTH_PICTURE_HEADER: {{ .Values.auth.pictureHeader | default "none" | quote }}
+  {{- else }}
+  AUTH_MODE: google
   GOOGLE_REDIRECT_URL: {{ printf "%s/api/v1/auth/google/callback" .Values.publicURL | quote }}
+  {{- end }}
   AUTH_DEV_MODE: "false"
   AUTH_PASSWORD_ENABLED: "false"
   COOKIE_SECURE: "true"
@@ -28,6 +40,22 @@ data:
         default upgrade;
         ''      close;
     }
+    {{- if include "central.proxyMode" . }}
+
+    # Sign-in from the proxy's identity header: the api believes the header
+    # from this pod, so this pod must only forward it for the Tailscale proxy.
+    # The NetworkPolicy keeps other pods off :3000, but not the node the pod
+    # runs on (kube-router admits node-local traffic ahead of every policy),
+    # so /api/ is refused outright for any peer outside the trusted ranges:
+    # the same list as AUTH_TRUSTED_PROXY_CIDRS, the pod range minus the
+    # node's own addresses. The kubelet's probes only fetch /, which stays.
+    geo $central_trusted_peer {
+        default 0;
+        {{- range .Values.auth.trustedProxyCIDRs }}
+        {{ . }} 1;
+        {{- end }}
+    }
+    {{- end }}
     
     server {
         listen 3000;
@@ -40,6 +68,12 @@ data:
     
         # Same-origin API: cookies, CORS and WebSockets all just work.
         location /api/ {
+            {{- if include "central.proxyMode" . }}
+            default_type application/json;
+            if ($central_trusted_peer = 0) {
+                return 403 '{"error":{"code":"untrusted_peer","message":"identity headers are not accepted from this address; open Central Station through the tailnet"}}';
+            }
+            {{- end }}
             proxy_pass http://{{ include "central.name" . }}-api:8080;
             proxy_http_version 1.1;
             proxy_set_header Host $http_host;

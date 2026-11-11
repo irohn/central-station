@@ -10,6 +10,23 @@
       "type": "string",
       "minLength": 1
     },
+    "auth": {
+      "type": "object",
+      "properties": {
+        "mode": {"type": "string", "enum": ["google", "proxy"]},
+        "trustedProxyCIDRs": {"type": "array", "items": {"type": "string", "minLength": 1}},
+        "trustedHeader": {"type": "string", "minLength": 1},
+        "displayNameHeader": {"type": "string"},
+        "pictureHeader": {"type": "string"}
+      }
+    },
+    "networkPolicy": {
+      "type": "object",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "proxyNamespace": {"type": "string", "minLength": 1}
+      }
+    },
     "tailscale": {
       "type": "object",
       "properties": {

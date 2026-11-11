@@ -41,6 +41,7 @@ spec:
                 secretKeyRef:
                   name: {{ required "existingSecret is required" .Values.existingSecret }}
                   key: SESSION_SECRET
+            {{- if not (include "central.proxyMode" .) }}
             - name: GOOGLE_CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -51,6 +52,7 @@ spec:
                 secretKeyRef:
                   name: {{ required "existingSecret is required" .Values.existingSecret }}
                   key: GOOGLE_CLIENT_SECRET
+            {{- end }}
             - name: PLAYER_TOKEN
               valueFrom:
                 secretKeyRef:
