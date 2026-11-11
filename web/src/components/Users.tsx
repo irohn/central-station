@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "../api";
-import type { Permission, Role, User } from "../types";
+import type { AuthMethods, Permission, Role, User } from "../types";
 import { Check, Pencil, X } from "./Icons";
 
 const roles: Role[] = ["listener", "collaborator", "manager", "admin"];
 
 interface RolesInfo { permissions: Permission[]; grants: Record<Role, Permission[]> }
 
-export function Users({ me, onMeChanged }: { me: User; onMeChanged: (u: User) => void }) {
+export function Users({ me, onMeChanged, methods }: { me: User; onMeChanged: (u: User) => void; methods: AuthMethods | null }) {
+  const ssoLabel = methods?.proxy ? "tailnet" : "Google";
   const [users, setUsers] = useState<User[]>([]);
   const [info, setInfo] = useState<RolesInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +94,7 @@ export function Users({ me, onMeChanged }: { me: User; onMeChanged: (u: User) =>
                       {u.permissionsOverridden && <span className="pill warn-pill" title="Permissions were customised for this session">custom permissions</span>}
                     </div>
                   )}
-                  <div className="muted small ellipsis">{u.email}{u.hasPassword ? " · password" : " · Google"}</div>
+                  <div className="muted small ellipsis">{u.email} · {u.hasPassword ? "password" : ssoLabel}</div>
                   <div className="muted small">
                     {u.emailVerified ? "Verified" : <span className="warn">Not verified</span>} · last seen {new Date(u.lastLoginAt).toLocaleDateString()}
                   </div>

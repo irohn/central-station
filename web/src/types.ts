@@ -263,10 +263,22 @@ export interface LiveEvent {
 }
 
 export interface AuthMethods {
+  /** "google" (sign-in methods below, with a session) or "proxy" (a trusted proxy names the person on every request). */
+  mode: "google" | "proxy";
+  proxy: boolean;
   google: boolean;
   dev: boolean;
   password: boolean;
   /** How password accounts get verified: by email link, or by an admin. */
   passwordVerification: "email" | "admin";
   passwordMinLength: number;
+}
+
+/** GET /auth/whoami: who the caller is, or in proxy mode why nobody is. */
+export interface WhoAmI {
+  mode: "google" | "proxy";
+  signedIn: boolean;
+  user?: User;
+  reason?: "untrusted_peer" | "no_identity" | "invalid_identity" | "email_not_allowed";
+  message?: string;
 }

@@ -7,11 +7,39 @@ image:
 imagePullSecrets: []
 nodeSelector: {}
 auth:
+  # How people are signed in:
+  #   google  with their Google account and a session cookie. Needs
+  #           GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in existingSecret.
+  #   proxy   from the tailnet identity: the Tailscale operator's proxy in
+  #           front of the web pod sets Tailscale-User-Login on every request,
+  #           after removing any copy the client sent, and the api serves the
+  #           request as that person. No login page, no session. Needs
+  #           tailscale.enabled, networkPolicy.enabled and trustedProxyCIDRs,
+  #           or the chart refuses to render: without them any pod, or the
+  #           node, could send the header. The Google keys are then unused.
+  # The allow-list below applies to both.
+  mode: google
   adminEmails: []
   allowedEmails: []
   allowedDomains: []
-  # Fail closed until an administrator configures the allow-list.
+  # Fail closed until an administrator configures the allow-list. Proxy mode
+  # refuses to start with it off.
   accessAllowlist: true
+  # proxy only. The socket peers whose identity headers are believed. The api's
+  # peer is the web pod (nginx forwards /api/ to it), and the web pod's peer is
+  # the Tailscale proxy; both have pod addresses that change on every restart,
+  # so this is a range: the pod range of the node they run on, minus the node's
+  # own addresses in it. A NetworkPolicy cannot keep out the node the pods run
+  # on (kube-router admits node-local traffic, hostNetwork pods and host
+  # processes included), so leaving those out is what refuses it. Too wide
+  # fails open; too narrow fails closed (401 untrusted_peer). Set in the
+  # cluster overlay.
+  trustedProxyCIDRs: []
+  # proxy only: the headers the proxy sets. The Tailscale ones by default;
+  # "none" reads no display name or picture.
+  trustedHeader: Tailscale-User-Login
+  displayNameHeader: Tailscale-User-Name
+  pictureHeader: Tailscale-User-Profile-Pic
 postgres:
   image: postgres:17-alpine
   storage: 10Gi
@@ -20,6 +48,15 @@ tailscale:
   enabled: true
   hostname: central
   tags: "tag:k8s"
+# templates/networkpolicy.yaml: only the Tailscale operator's proxy for this
+# release's Ingress reaches the web pod, only the web pod (and the player, when
+# enabled) reaches the api, and only the api reaches tts and postgres. With
+# auth.mode=proxy this is what keeps other pods from sending an identity
+# header; it does not keep out the node, which auth.trustedProxyCIDRs handles.
+networkPolicy:
+  enabled: true
+  # Where the Tailscale operator runs its proxy pods.
+  proxyNamespace: tailscale
 resources:
   api:
     requests: {cpu: 100m, memory: 128Mi}
@@ -30,3 +67,13 @@ resources:
   tts:
     requests: {cpu: 100m, memory: 256Mi}
     limits: {memory: 2Gi}
+# Optional speaker agent on a Linux desktop node with PipeWire/PulseAudio.
+player:
+  enabled: false
+  name: workstation-player
+  nodeSelector: {}
+  uid: 1000
+  gid: 1000
+  pulseDirectory: /run/user/1000/pulse
+  # Optional PulseAudio authentication cookie from the same desktop user.
+  pulseCookie: ""

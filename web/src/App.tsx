@@ -121,7 +121,7 @@ export default function App() {
             theme={theme}
             onToggleTheme={toggleTheme}
             onNavigate={go}
-            onLogout={logout}
+            onLogout={methods?.proxy ? undefined : logout}
           />
         </div>
       </header>
@@ -163,12 +163,12 @@ export default function App() {
         )}
         {view === "queue" && !queue && <div className="center muted">Loading queue…</div>}
         {view === "history" && <History version={queue?.updatedAt ?? ""} user={user} />}
-        {view === "users" && <Users me={user} onMeChanged={setUser} />}
+        {view === "users" && <Users me={user} onMeChanged={setUser} methods={methods} />}
         {view === "fallback" && canManageFallback && <FallbackSettings user={user} />}
         {view === "broadcast" && canBroadcast && <Broadcast user={user} player={player} zones={zones} settingsOpen={settingsOpen} onCloseSettings={() => setSettingsOpen(false)} />}
         {view === "alerts" && canAlerts && <Alerts zones={zones} zoneId={zoneId} />}
         {view === "zones" && canZones && <ZonesPage zones={zones} zoneId={zoneId} user={user} onSelect={selectZone} />}
-        {view === "account" && <Account user={user} />}
+        {view === "account" && <Account user={user} methods={methods} />}
       </main>
     </div>
     </ZoneProvider>

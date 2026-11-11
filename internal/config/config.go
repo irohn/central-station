@@ -6,12 +6,30 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"central-station/internal/rbac"
+)
+
+// Sign-in modes (AUTH_MODE).
+const (
+	// AuthModeGoogle: Google sign-in (plus the optional password and dev
+	// logins) with a session cookie. The default.
+	AuthModeGoogle = "google"
+	// AuthModeProxy: the person is whoever a trusted reverse proxy names in a
+	// request header, on every request. No session, no login page.
+	AuthModeProxy = "proxy"
+)
+
+// Default header names in proxy mode: what the Tailscale operator's proxy sets.
+const (
+	DefaultTrustedHeader     = "Tailscale-User-Login"
+	DefaultDisplayNameHeader = "Tailscale-User-Name"
+	DefaultPictureHeader     = "Tailscale-User-Profile-Pic"
 )
 
 // Config is the fully resolved runtime configuration.
@@ -28,6 +46,15 @@ type Config struct {
 	SessionSecret string
 	SessionTTL    time.Duration
 	CookieSecure  bool
+
+	// AuthMode is AuthModeGoogle or AuthModeProxy.
+	AuthMode string
+	// Proxy mode: the socket peers whose identity headers are believed, and
+	// the headers that carry the identity. See AUTH_TRUSTED_PROXY_CIDRS.
+	TrustedProxyCIDRs []netip.Prefix
+	TrustedHeader     string
+	DisplayNameHeader string
+	PictureHeader     string
 
 	GoogleClientID     string
 	GoogleClientSecret string
@@ -107,6 +134,10 @@ func Load() (*Config, error) {
 func LoadFrom(getenv func(string) string) (*Config, error) {
 	c := &Config{
 		Env:                 strings.ToLower(envOr(getenv, "APP_ENV", "development")),
+		AuthMode:            strings.ToLower(envOr(getenv, "AUTH_MODE", AuthModeGoogle)),
+		TrustedHeader:       envOr(getenv, "AUTH_TRUSTED_HEADER", DefaultTrustedHeader),
+		DisplayNameHeader:   optionalHeader(getenv, "AUTH_DISPLAY_NAME_HEADER", DefaultDisplayNameHeader),
+		PictureHeader:       optionalHeader(getenv, "AUTH_PICTURE_HEADER", DefaultPictureHeader),
 		Addr:                envOr(getenv, "ADDR", ":8080"),
 		BaseURL:             strings.TrimRight(envOr(getenv, "BASE_URL", "http://localhost:8080"), "/"),
 		FrontendURL:         strings.TrimRight(envOr(getenv, "FRONTEND_URL", "http://localhost:3000"), "/"),
@@ -235,22 +266,33 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 		if c.AuthDevMode {
 			return nil, errors.New("AUTH_DEV_MODE cannot be enabled when APP_ENV=production")
 		}
-		if c.SessionSecret == "" {
+		if c.SessionSecret == "" && !c.ProxyMode() {
 			return nil, errors.New("SESSION_SECRET is required when APP_ENV=production")
 		}
 	}
 	if c.SessionSecret == "" {
 		c.SessionSecret = randomSecret()
-		c.Warnings = append(c.Warnings, "SESSION_SECRET not set; generated a random one (sessions will not survive restarts)")
+		if !c.ProxyMode() {
+			c.Warnings = append(c.Warnings, "SESSION_SECRET not set; generated a random one (sessions will not survive restarts)")
+		}
 	}
-	if len(c.SessionSecret) < 32 {
+	if len(c.SessionSecret) < 32 && !c.ProxyMode() {
 		c.Warnings = append(c.Warnings, "SESSION_SECRET is shorter than 32 characters; use a longer secret")
 	}
-	if !c.GoogleConfigured() && !c.AuthDevMode && !c.AuthPasswordEnabled {
-		return nil, errors.New("no sign-in method: set GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, AUTH_PASSWORD_ENABLED=true, or AUTH_DEV_MODE=true")
-	}
-	if !c.GoogleConfigured() && !c.AuthPasswordEnabled {
-		c.Warnings = append(c.Warnings, "Google SSO not configured; only the dev login endpoint is available")
+	switch c.AuthMode {
+	case AuthModeGoogle:
+		if !c.GoogleConfigured() && !c.AuthDevMode && !c.AuthPasswordEnabled {
+			return nil, errors.New("no sign-in method: set GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET, AUTH_PASSWORD_ENABLED=true, AUTH_DEV_MODE=true, or AUTH_MODE=proxy")
+		}
+		if !c.GoogleConfigured() && !c.AuthPasswordEnabled {
+			c.Warnings = append(c.Warnings, "Google SSO not configured; only the dev login endpoint is available")
+		}
+	case AuthModeProxy:
+		if err := c.loadProxyMode(getenv); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("AUTH_MODE must be %s or %s, got %q", AuthModeGoogle, AuthModeProxy, c.AuthMode)
 	}
 	if c.AuthPasswordEnabled && c.SMTPHost == "" {
 		c.Warnings = append(c.Warnings, "AUTH_PASSWORD_ENABLED without SMTP_HOST: new accounts must be verified by an admin from the Users page")
@@ -272,8 +314,59 @@ func LoadFrom(getenv func(string) string) (*Config, error) {
 	return c, nil
 }
 
+// loadProxyMode reads and checks what AUTH_MODE=proxy needs. The header is a
+// sign-in only because nothing but the proxy can send it, so the mode refuses
+// to start without the list of peers it may come from, and refuses to run a
+// second way in beside it.
+func (c *Config) loadProxyMode(getenv func(string) string) error {
+	if c.AuthDevMode {
+		return errors.New("AUTH_DEV_MODE cannot be enabled when AUTH_MODE=proxy")
+	}
+	if c.AuthPasswordEnabled {
+		return errors.New("AUTH_PASSWORD_ENABLED cannot be enabled when AUTH_MODE=proxy")
+	}
+	if strings.TrimSpace(c.TrustedHeader) == "" {
+		return errors.New("AUTH_TRUSTED_HEADER must name the identity header when AUTH_MODE=proxy")
+	}
+	cidrs := splitList(getenv("AUTH_TRUSTED_PROXY_CIDRS"))
+	if len(cidrs) == 0 {
+		return errors.New("AUTH_TRUSTED_PROXY_CIDRS is required when AUTH_MODE=proxy: the addresses the proxy's requests come from, and nothing wider")
+	}
+	for _, raw := range cidrs {
+		if p, err := netip.ParsePrefix(raw); err == nil {
+			c.TrustedProxyCIDRs = append(c.TrustedProxyCIDRs, p.Masked())
+			continue
+		}
+		a, err := netip.ParseAddr(raw)
+		if err != nil {
+			return fmt.Errorf("AUTH_TRUSTED_PROXY_CIDRS: %q is not a CIDR or an address", raw)
+		}
+		c.TrustedProxyCIDRs = append(c.TrustedProxyCIDRs, netip.PrefixFrom(a.Unmap(), a.Unmap().BitLen()))
+	}
+	// The proxy names anyone on the tailnet; the allow-list is what says who
+	// may use the app. Without one every tailnet identity would be let in, so
+	// this mode always enforces it (ACCESS_ALLOWLIST unset means on, not
+	// "iff a list is set") and needs at least one entry.
+	if strings.TrimSpace(getenv("ACCESS_ALLOWLIST")) == "" {
+		c.AccessAllowlist = true
+	}
+	if !c.AccessAllowlist {
+		return errors.New("ACCESS_ALLOWLIST cannot be false when AUTH_MODE=proxy")
+	}
+	if len(c.AllowedEmailDomains) == 0 && len(c.AllowedEmails) == 0 && len(c.AdminEmails) == 0 {
+		return errors.New("AUTH_MODE=proxy needs an allow-list: set ALLOWED_EMAIL_DOMAINS, ALLOWED_EMAILS or ADMIN_EMAILS")
+	}
+	if c.GoogleConfigured() {
+		c.Warnings = append(c.Warnings, "AUTH_MODE=proxy: GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET are set but not used")
+	}
+	return nil
+}
+
 // IsProduction reports whether the app runs with APP_ENV=production.
 func (c *Config) IsProduction() bool { return c.Env == "production" }
+
+// ProxyMode reports whether people are signed in by a trusted proxy's header.
+func (c *Config) ProxyMode() bool { return c.AuthMode == AuthModeProxy }
 
 // GoogleConfigured reports whether Google SSO credentials are present.
 func (c *Config) GoogleConfigured() bool {
@@ -285,6 +378,16 @@ func envOr(getenv func(string) string, key, def string) string {
 		return v
 	}
 	return def
+}
+
+// optionalHeader reads a header name that may be switched off: unset is the
+// default, "none" (any case) reads no such header.
+func optionalHeader(getenv func(string) string, key, def string) string {
+	v := envOr(getenv, key, def)
+	if strings.EqualFold(v, "none") {
+		return ""
+	}
+	return v
 }
 
 func splitList(s string) []string {

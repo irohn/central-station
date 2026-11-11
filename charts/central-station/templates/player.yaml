@@ -1,0 +1,86 @@
+{{- if .Values.player.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "central.name" . }}-player
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: {{ include "central.name" . }}-player
+  template:
+    metadata:
+      labels:
+        app: {{ include "central.name" . }}-player
+    spec:
+      automountServiceAccountToken: false
+      nodeSelector:
+        {{- toYaml (required "player.nodeSelector must select the audio host" .Values.player.nodeSelector) | nindent 8 }}
+      imagePullSecrets:
+        {{- toYaml .Values.imagePullSecrets | nindent 8 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ .Values.player.uid }}
+        runAsGroup: {{ .Values.player.gid }}
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: player
+          image: "{{ .Values.image.registry }}/central-station-player:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: API_URL
+              value: "http://{{ include "central.name" . }}-api:8080"
+            - name: PLAYER_NAME
+              value: {{ .Values.player.name | quote }}
+            - name: PLAYER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.existingSecret }}
+                  key: PLAYER_TOKEN
+            - name: PULSE_SERVER
+              value: unix:/run/pulse/native
+            - name: MPV_AO
+              value: pulse
+            - name: HOME
+              value: /tmp
+          resources:
+            requests: {cpu: 100m, memory: 128Mi}
+            limits: {memory: 512Mi}
+          volumeMounts:
+            - name: pulse
+              mountPath: /run/pulse
+              readOnly: true
+            {{- if .Values.player.pulseCookie }}
+            - name: pulse-cookie
+              mountPath: /tmp/.config/pulse/cookie
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: pulse
+          hostPath:
+            path: {{ .Values.player.pulseDirectory | quote }}
+            type: Directory
+        {{- if .Values.player.pulseCookie }}
+        - name: pulse-cookie
+          hostPath:
+            path: {{ .Values.player.pulseCookie | quote }}
+            type: File
+        {{- end }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "central.name" . }}-player
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ include "central.name" . }}-player
+  policyTypes: [Ingress]
+  ingress: []
+{{- end }}

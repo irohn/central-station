@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, loginUrl } from "../api";
-import type { AuthMethods, Role, User } from "../types";
+import type { AuthMethods, Role, User, WhoAmI } from "../types";
 
 type Mode = "signin" | "register";
 
@@ -8,6 +8,16 @@ const errorText: Record<string, string> = {
   verification_link_invalid: "That verification link is invalid or has expired. Sign in and request a new one.",
   email_not_allowed: "This email address is not allowed to sign in.",
   email_not_verified: "Google did not report this email as verified.",
+};
+
+const noMethods: AuthMethods = { mode: "google", proxy: false, google: false, dev: false, password: false, passwordVerification: "admin", passwordMinLength: 10 };
+
+/** Why the proxy left this request anonymous, for a person to act on. */
+const proxyReason: Record<string, string> = {
+  no_identity: "This connection carries no identity. Open Central Station through the tailnet, from a machine that is signed in as you (not a tagged one).",
+  untrusted_peer: "The request did not come through the tailnet proxy, so its identity is not believed.",
+  invalid_identity: "The identity the proxy sent is not an email address.",
+  email_not_allowed: "Your account is not allowed to use Central Station. Ask an admin to add it.",
 };
 
 export function Login({ onLogin }: { onLogin: (u: User) => void }) {
@@ -21,13 +31,20 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
   const [error, setError] = useState<string | null>(null);
   const [devEmail, setDevEmail] = useState("");
   const [role, setRole] = useState<Role>("collaborator");
+  const [who, setWho] = useState<WhoAmI | null>(null);
   const params = new URLSearchParams(location.search);
   const urlError = params.get("error");
   const verified = params.get("verified") === "1";
 
   useEffect(() => {
-    api<AuthMethods>("GET", "/auth/methods").then(setMethods).catch(() => setMethods({ google: false, dev: false, password: false, passwordVerification: "admin", passwordMinLength: 10 }));
+    api<AuthMethods>("GET", "/auth/methods").then(setMethods).catch(() => setMethods(noMethods));
   }, []);
+
+  // Proxy mode has no button to press: the proxy either named us or it did
+  // not, and whoami says which. Signed in after all (the page was opened
+  // before the proxy was ready, say) means we can go straight in.
+  const checkProxy = () => api<WhoAmI>("GET", "/auth/whoami").then((w) => { if (w.signedIn && w.user) onLogin(w.user); else setWho(w); }).catch(fail);
+  useEffect(() => { if (methods?.proxy) void checkProxy(); }, [methods?.proxy]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fail = (e: unknown) => setError(e instanceof ApiError ? e.message : String(e));
   const minLen = methods?.passwordMinLength ?? 10;
@@ -65,6 +82,15 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
         {verified && <p className="ok small">Your email is verified. Sign in to continue.</p>}
         {urlError && <p className="error">{errorText[urlError] ?? `Sign-in failed: ${urlError.replace(/_/g, " ")}`}</p>}
 
+        {methods?.proxy && (
+          <div className="proxy-login">
+            <p className="muted small">You are signed in by your tailnet identity; there is no password here.</p>
+            {who && !who.signedIn && <p className="error">{proxyReason[who.reason ?? ""] ?? who.message ?? "Not signed in."}</p>}
+            {who?.message && who.reason && proxyReason[who.reason] && <p className="muted small">{who.message}</p>}
+            <button className="btn primary" type="button" onClick={() => { setError(null); void checkProxy(); }}>Try again</button>
+          </div>
+        )}
+
         {methods?.google && (
           <a className="btn primary" href={loginUrl("/")}>Sign in with Google</a>
         )}
@@ -95,7 +121,7 @@ export function Login({ onLogin }: { onLogin: (u: User) => void }) {
           </form>
         )}
 
-        {methods && !methods.google && !methods.dev && !methods.password && (
+        {methods && !methods.proxy && !methods.google && !methods.dev && !methods.password && (
           <p className="error">No sign-in method is configured on the server.</p>
         )}
         {error && <p className="error">{error}</p>}

@@ -64,11 +64,16 @@ func Handler(d Deps) http.Handler {
 	a := &api{Deps: d, loginLimiter: auth.NewLimiter(10, 15*time.Minute)}
 	mux := http.NewServeMux()
 
-	// Auth
+	// Auth. In proxy mode there is no login, logout or session: the proxy
+	// names the person on every request, and /auth/whoami says who that is or
+	// why nobody is.
 	mux.Handle("GET /auth/methods", httpx.HandlerFunc(a.authMethods))
-	mux.Handle("GET /auth/google/login", httpx.HandlerFunc(a.googleLogin))
-	mux.Handle("GET /auth/google/callback", httpx.HandlerFunc(a.googleCallback))
-	mux.Handle("POST /auth/logout", httpx.HandlerFunc(a.logout))
+	mux.Handle("GET /auth/whoami", httpx.HandlerFunc(a.whoami))
+	if !d.Config.ProxyMode() {
+		mux.Handle("GET /auth/google/login", httpx.HandlerFunc(a.googleLogin))
+		mux.Handle("GET /auth/google/callback", httpx.HandlerFunc(a.googleCallback))
+		mux.Handle("POST /auth/logout", httpx.HandlerFunc(a.logout))
+	}
 	if d.Config.AuthDevMode {
 		mux.Handle("POST /auth/dev/login", httpx.HandlerFunc(a.devLogin))
 	}
@@ -167,6 +172,21 @@ func Handler(d Deps) http.Handler {
 		Users:          d.Users,
 		TrustedOrigins: append([]string{d.Config.FrontendURL, d.Config.BaseURL}, d.Config.AllowedOrigins...),
 		Overrides:      d.Overrides,
+	}
+	if d.Config.ProxyMode() {
+		proxy, err := auth.NewHeaderAuth(auth.HeaderConfig{
+			Header:        d.Config.TrustedHeader,
+			NameHeader:    d.Config.DisplayNameHeader,
+			PictureHeader: d.Config.PictureHeader,
+			TrustedPeers:  d.Config.TrustedProxyCIDRs,
+			Allowed:       a.emailAllowed,
+			SignIn:        a.proxySignIn,
+		})
+		if err != nil {
+			// config.Load checked the same things; this cannot happen.
+			panic("auth: " + err.Error())
+		}
+		authn.Proxy = proxy
 	}
 	// The player socket authenticates with a zone's player token (or the
 	// legacy PLAYER_TOKEN), not a user session, so it is mounted outside the
